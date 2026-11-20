@@ -34,11 +34,12 @@
     </div>
     <div id="tabs" class="flex flex-wrap gap-1"></div>
     <div class="ml-auto flex items-center gap-2 text-sm">
+      <span id="mode" class="tag t-yellow"></span>
       <span id="rem" class="tag t-slate" title="Odds API Credits Remaining"></span>
       <button class="btn" onclick="setView('board')" id="vb">Today's Picks</button>
       <button class="btn" onclick="setView('bets')" id="vt">My Record</button>
       <button class="btn" onclick="load(true)" title="Refresh live games">⟳ Sync</button>
-      <button class="btn" onclick="openCfg()">⚙ API Key</button>
+      <button class="btn on" onclick="openCfg()">⚙ API Key</button>
     </div>
   </div>
   <div id="sub" class="max-w-5xl mx-auto flex flex-wrap gap-2 mt-2 items-center"></div>
@@ -100,6 +101,54 @@ async function cached(k, fn, ttl = 9e5) {
   return d;
 }
 
+/* ---------- SAMPLE SLATE (SHOWN BEFORE API KEY IS ENTERED) ---------- */
+function getSampleGames() {
+  const samples = [
+    {
+      id: 'samp1', s: 'NFL', a: 'New York Jets', h: 'Baltimore Ravens', ts: new Date(Date.now() + 3600000).toISOString(),
+      tm: 'Sun 1:00 PM', sample: true,
+      books: { DK: { ml: [240, -295], sp: [-6.5, -110, -110], t: [45.5, -110, -110] }, FD: { ml: [245, -300], sp: [-6.5, -108, -112], t: [45.0, -110, -110] } },
+      e: {
+        st: 'Sun 1:00 PM', state: 'pre', venue: 'M&T Bank Stadium', indoor: false, weather: 'Clear', temp: 44,
+        a: { short: 'Jets', rec: '3-7', split: '1-4', standings: { ppg: 18.2, papg: 24.6 }, leaders: ['B. Hall (780 Rush Yds)'] },
+        h: { short: 'Ravens', rec: '8-2', split: '4-1', standings: { ppg: 30.4, papg: 21.0 }, leaders: ['L. Jackson (2,650 Pass Yds)'] }
+      }
+    },
+    {
+      id: 'samp2', s: 'NFL', a: 'Buffalo Bills', h: 'Chicago Bears', ts: new Date(Date.now() + 7200000).toISOString(),
+      tm: 'Sun 4:25 PM', sample: true,
+      books: { DK: { ml: [-155, 130], sp: [3.0, -110, -110], t: [44.5, -110, -110] }, FD: { ml: [-150, 126], sp: [3.0, -112, -108], t: [44.0, -110, -110] } },
+      e: {
+        st: 'Sun 4:25 PM', state: 'pre', venue: 'Soldier Field', indoor: false, weather: 'Windy 22 mph', temp: 29,
+        a: { short: 'Bills', rec: '7-3', split: '3-2', standings: { ppg: 26.8, papg: 19.5 }, leaders: ['J. Allen (22 Pass TD)'] },
+        h: { short: 'Bears', rec: '4-6', split: '3-2', standings: { ppg: 19.4, papg: 21.8 }, leaders: ['C. Williams (2,110 Pass Yds)'] }
+      }
+    },
+    {
+      id: 'samp3', s: 'NCAAF', a: 'Ole Miss Rebels', h: 'Florida Gators', ts: new Date(Date.now() + 10800000).toISOString(),
+      tm: 'Sat 12:00 PM', cf: 'SEC', rk: [11, null], sample: true,
+      books: { DK: { ml: [-190, 158], sp: [4.5, -110, -110], t: [54.5, -110, -110] }, MGM: { ml: [-185, 155], sp: [4.5, -110, -110], t: [54.5, -110, -110] } },
+      e: {
+        st: 'Sat 12:00 PM', state: 'pre', venue: 'Ben Hill Griffin Stadium', indoor: false, weather: 'Sunny', temp: 68,
+        a: { short: 'Ole Miss', rec: '8-2', split: '2-2', standings: {}, leaders: ['J. Dart (3,100 Pass Yds)'] },
+        h: { short: 'Florida', rec: '5-5', split: '4-1', standings: {}, leaders: ['D. Lagway (1,620 Pass Yds)'] }
+      }
+    },
+    {
+      id: 'samp4', s: 'NHL', a: 'New Jersey Devils', h: 'Carolina Hurricanes', ts: new Date(Date.now() + 14400000).toISOString(),
+      tm: 'Tonight 7:00 PM', sample: true,
+      books: { DK: { ml: [115, -135], sp: [-1.5, -185, 155], t: [6.0, -110, -110] } },
+      e: {
+        st: 'Tonight 7:00 PM', state: 'pre', venue: 'Lenovo Center', indoor: true,
+        a: { short: 'Devils', rec: '12-6-2', split: '7-3-0', standings: { ppg: 3.4, papg: 2.6 }, leaders: ['J. Hughes (24 PTS)'] },
+        h: { short: 'Hurricanes', rec: '13-5-0', split: '7-2-0', standings: { ppg: 3.6, papg: 2.5 }, leaders: ['M. Necas (27 PTS)'] }
+      }
+    }
+  ];
+  samples.forEach(g => { g.rec = generateRecommendation(g); });
+  return samples;
+}
+
 /* ---------- FETCH ODDS ---------- */
 async function oddsFetch(sp) {
   const u = `https://api.the-odds-api.com/v4/sports/${SP[sp].k}/odds/?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
@@ -158,8 +207,6 @@ async function espnFetch(sp) {
         const recs = q.records || [];
         const overall = (recs.find(r => r.type === 'total') || recs[0] || {}).summary || '';
         const split = (recs.find(r => r.type === (side === 'home' ? 'home' : 'road')) || {}).summary || '';
-        const stats = {};
-        (q.statistics || []).forEach(st => { stats[st.name] = parseFloat(st.displayValue); });
         const leaders = (q.leaders || []).slice(0, 2).map(l =>
           `${l.shortDisplayName}: ${l.leaders?.[0]?.athlete?.shortName} (${l.leaders?.[0]?.displayValue})`
         );
@@ -174,7 +221,6 @@ async function espnFetch(sp) {
           rk: q.curatedRank && q.curatedRank.current > 0 && q.curatedRank.current <= 25 ? q.curatedRank.current : null,
           rec: overall,
           split,
-          stats,
           leaders
         };
       };
@@ -186,8 +232,7 @@ async function espnFetch(sp) {
         venue: comp.venue?.fullName || '',
         indoor: comp.venue?.indoor ?? false,
         weather: ev.weather?.displayValue || '',
-        temp: ev.weather?.temperature || null,
-        headline: comp.notes?.[0]?.headline || ''
+        temp: ev.weather?.temperature || null
       };
     });
   }, 6e5);
@@ -210,9 +255,7 @@ async function standingsFetch(sp) {
             (ent.stats || []).forEach(s => { stMap[s.name] = s.value; });
             map[id] = {
               ppg: stMap.avgPointsFor ?? stMap.pointsFor ?? null,
-              papg: stMap.avgPointsAgainst ?? stMap.pointsAgainst ?? null,
-              gp: stMap.gamesPlayed ?? null,
-              streak: ent.stats?.find(s => s.name === 'streak')?.displayValue || ''
+              papg: stMap.avgPointsAgainst ?? stMap.pointsAgainst ?? null
             };
           });
         }
@@ -226,7 +269,6 @@ async function standingsFetch(sp) {
   }, 18e5);
 }
 
-/* Fuzzy team matcher */
 const AL = {
   uconn: 'connecticut', 'ole miss': 'mississippi', usc: 'southern california', pitt: 'pittsburgh',
   umass: 'massachusetts', ucf: 'central florida', smu: 'southern methodist', tcu: 'texas christian',
@@ -290,8 +332,9 @@ function generateRecommendation(g) {
     const fallback = bestLine(g.books, 'ml', 'h');
     return {
       tier: 'pass',
+      score: 0,
       tierLabel: 'LIMITED DATA',
-      pickTitle: 'No Automated Pick — ESPN Matchup Data Pending',
+      pickTitle: 'No Automated Pick — Matchup Data Pending',
       reason: 'Live odds are loaded, but team records and matchup stats have not synced for this game yet.',
       bet: fallback ? { market: 'ml', side: 'h', label: `${g.h} ML`, ...fallback } : null
     };
@@ -312,54 +355,54 @@ function generateRecommendation(g) {
   const awayReasons = [];
   const totalReasons = [];
 
-  // 1. Overall Season Win% vs Spread
+  // 1. Season Win% Gap
   if (aRec && hRec && aRec.gp >= 3 && hRec.gp >= 3) {
     const pctGap = hRec.pct - aRec.pct;
-    if (pctGap >= 0.28) {
-      homeScore += 3;
-      homeReasons.push(`${e.h.short} (${e.h.rec}) has been significantly more consistent all season than ${e.a.short} (${e.a.rec})`);
-    } else if (pctGap <= -0.28) {
-      awayScore += 3;
-      awayReasons.push(`${e.a.short} (${e.a.rec}) owns a clear talent and record advantage over ${e.h.short} (${e.h.rec})`);
+    if (pctGap >= 0.22) {
+      homeScore += 2.5;
+      homeReasons.push(`${e.h.short} (${e.h.rec}) has been noticeably stronger all season than ${e.a.short} (${e.a.rec})`);
+    } else if (pctGap <= -0.22) {
+      awayScore += 2.5;
+      awayReasons.push(`${e.a.short} (${e.a.rec}) owns a clear record advantage over ${e.h.short} (${e.h.rec})`);
     }
   }
 
   // 2. Home Dominance vs Road Struggles
-  if (hHome && hHome.gp >= 3 && hHome.pct >= 0.72) {
+  if (hHome && hHome.gp >= 3 && hHome.pct >= 0.70) {
     homeScore += 2;
     homeReasons.push(`${e.h.short} protects home turf (${e.h.split} at home)`);
   }
-  if (aRoad && aRoad.gp >= 3 && aRoad.pct <= 0.28) {
+  if (aRoad && aRoad.gp >= 3 && aRoad.pct <= 0.30) {
     homeScore += 2;
-    homeReasons.push(`${e.a.short} has struggled badly away from home (${e.a.split} on the road)`);
-  } else if (aRoad && aRoad.gp >= 3 && aRoad.pct >= 0.72) {
+    homeReasons.push(`${e.a.short} has struggled away from home (${e.a.split} on the road)`);
+  } else if (aRoad && aRoad.gp >= 3 && aRoad.pct >= 0.70) {
     awayScore += 2;
-    awayReasons.push(`${e.a.short} is battle-tested away from home (${e.a.split} road record)`);
+    awayReasons.push(`${e.a.short} travels well (${e.a.split} road record)`);
   }
-  if (hHome && hHome.gp >= 3 && hHome.pct <= 0.30) {
+  if (hHome && hHome.gp >= 3 && hHome.pct <= 0.33) {
     awayScore += 1.5;
-    awayReasons.push(`${e.h.short} holds no real home-field edge (${e.h.split} at home)`);
+    awayReasons.push(`${e.h.short} hasn't defended home court/field (${e.h.split} at home)`);
   }
 
-  // 3. Scoring Offense vs Defense Matchup (from ESPN Standings)
-  if (aSt.ppg && hSt.ppg && aSt.papg && hSt.papg && (g.s === 'NFL' || g.s === 'NHL' || g.s === 'MLB')) {
+  // 3. Scoring Offense vs Defense Matchup
+  if (aSt.ppg && hSt.ppg && aSt.papg && hSt.papg && g.s === 'NFL') {
     const aNet = aSt.ppg - aSt.papg;
     const hNet = hSt.ppg - hSt.papg;
     const netDiff = hNet - aNet;
     const avgCombined = (aSt.ppg + hSt.papg + hSt.ppg + aSt.papg) / 2;
 
-    if (netDiff >= 5 && g.s === 'NFL') {
+    if (netDiff >= 4.5) {
       homeScore += 2.5;
-      homeReasons.push(`${e.h.short} outscores opponents by +${hNet.toFixed(1)} PPG compared to ${e.a.short}'s ${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)} PPG margin`);
-    } else if (netDiff <= -5 && g.s === 'NFL') {
+      homeReasons.push(`${e.h.short} outscores opponents by +${hNet.toFixed(1)} PPG vs. ${e.a.short}'s ${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)} PPG margin`);
+    } else if (netDiff <= -4.5) {
       awayScore += 2.5;
       awayReasons.push(`${e.a.short} carries a +${aNet.toFixed(1)} PPG scoring margin vs. ${e.h.short}'s ${hNet >= 0 ? '+' : ''}${hNet.toFixed(1)} PPG`);
     }
 
-    if (total && avgCombined - total >= 4.5 && g.s === 'NFL') {
+    if (total && avgCombined - total >= 4.0) {
       overScore += 2.5;
       totalReasons.push(`Both teams' scoring averages project ~${avgCombined.toFixed(1)} combined points against a ${total} total`);
-    } else if (total && total - avgCombined >= 4.5 && g.s === 'NFL') {
+    } else if (total && total - avgCombined >= 4.0) {
       underScore += 2.5;
       totalReasons.push(`Combined scoring trends (~${avgCombined.toFixed(1)} PPG) sit well below the ${total} total`);
     }
@@ -370,29 +413,28 @@ function generateRecommendation(g) {
     const [rkA, rkH] = g.rk;
     if (rkA && !rkH && homeSpread != null && homeSpread > 0 && homeSpread <= 6.5) {
       homeScore += 2.5;
-      homeReasons.push(`Classic ranked road trap: #${rkA} ${e.a.short} is laying under a touchdown on the road against a dangerous unranked ${e.h.short} squad`);
+      homeReasons.push(`Ranked road trap: #${rkA} ${e.a.short} is laying under a touchdown on the road against unranked ${e.h.short}`);
     }
   }
 
-  // 5. Weather Impact (Outdoor Football / Baseball)
+  // 5. Weather Impact
   const isBadWeather = !e.indoor && ((e.temp && e.temp <= 34) || /wind|rain|snow|storm/i.test(e.weather));
   if (isBadWeather && total != null) {
     underScore += 2.5;
     totalReasons.push(`Tough outdoor conditions (${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}) favor defense and clock-chewing possessions`);
   }
 
-  // Decide the single clearest play
   const sideDiff = Math.abs(homeScore - awayScore);
   const topSideScore = Math.max(homeScore, awayScore);
   const topTotalScore = Math.max(overScore, underScore);
 
-  // If Total edge is stronger than side edge
   if (topTotalScore >= 2.5 && topTotalScore > topSideScore && total != null) {
     const isOver = overScore > underScore;
     const b = bestLine(g.books, 't', isOver ? 'o' : 'u');
     if (b) {
       return {
         tier: topTotalScore >= 4 ? 'strong' : 'lean',
+        score: topTotalScore,
         tierLabel: topTotalScore >= 4 ? '🔥 STRONG PLAY' : '👍 SOLID LEAN',
         pickTitle: `TAKE ${isOver ? 'OVER' : 'UNDER'} ${b.point} (${fm(b.odds)} at ${b.book})`,
         reason: totalReasons.join('. ') + '.',
@@ -401,22 +443,19 @@ function generateRecommendation(g) {
     }
   }
 
-  // Otherwise pick the stronger Side (Spread or Moneyline)
-  if (topSideScore >= 2.5 && sideDiff >= 1.5) {
+  if (topSideScore >= 2.0 && sideDiff >= 1.5) {
     const pickHome = homeScore > awayScore;
     const team = pickHome ? e.h : e.a;
     const fullTeam = pickHome ? g.h : g.a;
     const reasons = pickHome ? homeReasons : awayReasons;
     const sideCode = pickHome ? 'h' : 'a';
 
-    // Prefer Spread if reasonable, or Moneyline if underdog / big favorite
     const spLine = bestLine(g.books, 'sp', sideCode);
     const mlLine = bestLine(g.books, 'ml', sideCode);
 
     let chosen = spLine;
     let pickText = spLine ? `${team.short} ${ln(spLine.point)} (${fm(spLine.odds)} at ${spLine.book})` : '';
 
-    // If team is an underdog on ML (+105 to +220) and we like them to win outright, highlight ML or Spread
     if (mlLine && mlLine.odds >= 100 && mlLine.odds <= 220) {
       chosen = mlLine;
       pickText = `${team.short} Moneyline (${fm(mlLine.odds)} at ${mlLine.book})`;
@@ -427,11 +466,12 @@ function generateRecommendation(g) {
 
     if (chosen) {
       const extraContext = e.a.leaders?.[0] && e.h.leaders?.[0]
-        ? ` Key player watch: ${e.a.short}'s ${e.a.leaders[0]} vs. ${e.h.short}'s ${e.h.leaders[0]}.`
+        ? ` Players to watch: ${e.a.short}'s ${e.a.leaders[0]} vs. ${e.h.short}'s ${e.h.leaders[0]}.`
         : '';
       return {
-        tier: topSideScore >= 4.5 ? 'strong' : 'lean',
-        tierLabel: topSideScore >= 4.5 ? '🔥 STRONG PLAY' : '👍 SOLID LEAN',
+        tier: topSideScore >= 4.0 ? 'strong' : 'lean',
+        score: topSideScore,
+        tierLabel: topSideScore >= 4.0 ? '🔥 STRONG PLAY' : '👍 SOLID LEAN',
         pickTitle: `PICK: ${pickText}`,
         reason: reasons.slice(0, 3).join('. ') + '.' + extraContext,
         bet: { market: chosen.point != null ? 'sp' : 'ml', side: sideCode, label: `${fullTeam} ${chosen.point != null ? ln(chosen.point) : 'ML'}`, ...chosen }
@@ -439,15 +479,15 @@ function generateRecommendation(g) {
     }
   }
 
-  // Coin-flip / Pass game
   const leanHome = (homeSpread ?? 0) < 0;
   const fallbackSide = leanHome ? 'h' : 'a';
   const fallbackBet = bestLine(g.books, 'sp', fallbackSide) || bestLine(g.books, 'ml', fallbackSide);
   return {
     tier: 'pass',
+    score: 0,
     tierLabel: '⚖️ TOSS-UP / PASS',
     pickTitle: 'No Clear Matchup Edge — Evenly Matched',
-    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly on paper${homeSpread != null ? ` with a tight ${ln(homeSpread)} line` : ''}. Better as a watch-only game unless you have a strong gut read.`,
+    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly on paper${homeSpread != null ? ` with a tight ${ln(homeSpread)} line` : ''}. Better as a watch-only game.`,
     bet: fallbackBet ? { market: fallbackBet.point != null ? 'sp' : 'ml', side: fallbackSide, label: `${leanHome ? g.h : g.a} ${fallbackBet.point != null ? ln(fallbackBet.point) : 'ML'}`, ...fallbackBet } : null
   };
 }
@@ -460,7 +500,7 @@ async function load(force) {
   $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Analyzing live matchups, team records, and sportsbook lines…</div>`;
 
   if (!st.cfg.key) {
-    st.games = [];
+    st.games = getSampleGames();
     render();
     return;
   }
@@ -507,7 +547,9 @@ function setView(v) { st.view = v; render(); }
 
 function render() {
   const hasKey = !!st.cfg.key;
-  $('#rem').textContent = hasKey ? `Credits: ${st.rem ?? '—'}` : 'No Key';
+  $('#mode').textContent = hasKey ? 'LIVE DATA' : 'SAMPLE PREVIEW';
+  $('#mode').className = `tag ${hasKey ? 't-green' : 't-yellow'}`;
+  $('#rem').textContent = hasKey ? `Credits: ${st.rem ?? '—'}` : 'Paste API Key for Live';
 
   $('#tabs').innerHTML = ['All', ...Object.keys(SP)].map(t =>
     `<button class="btn ${st.tab === t ? 'on' : ''}" onclick="st.tab='${t}';render()">${t === 'All' ? 'All Sports' : SP[t].label}</button>`
@@ -517,7 +559,7 @@ function render() {
   $('#vt').classList.toggle('on', st.view === 'bets');
 
   const isCol = st.tab === 'NCAAF' || st.tab === 'NCAAB';
-  if (st.view === 'board' && hasKey) {
+  if (st.view === 'board') {
     $('#sub').innerHTML = `
       <label class="btn ${st.onlyStrong ? 'on' : ''}">
         <input type="checkbox" class="hidden" ${st.onlyStrong ? 'checked' : ''} onchange="st.onlyStrong=this.checked;render()">
@@ -540,17 +582,6 @@ function render() {
 }
 
 function rBoard() {
-  if (!st.cfg.key) {
-    $('#main').innerHTML = `
-      <div class="card p-8 text-center max-w-lg mx-auto mt-6">
-        <div class="text-3xl mb-2">🔑</div>
-        <h2 class="text-lg font-bold mb-2">Enter Your Odds API Key</h2>
-        <p class="text-sm text-slate-400 mb-4">Paste your key from <b>the-odds-api.com</b> to load today's matchups, side-by-side team stats, and plain-English pick recommendations.</p>
-        <button class="btn on" onclick="openCfg()">Paste API Key</button>
-      </div>`;
-    return;
-  }
-
   let gs = st.games.filter(g => st.tab === 'All' || g.s === st.tab);
   if (st.onlyStrong) gs = gs.filter(g => g.rec && g.rec.tier !== 'pass');
   if (st.tab === 'NCAAF' || st.tab === 'NCAAB') {
@@ -558,8 +589,47 @@ function rBoard() {
     if (st.power) gs = gs.filter(g => POW.includes(g.cf));
   }
 
+  // Top 3 Picks Summary Banner
+  const topPicks = [...gs]
+    .filter(g => g.rec && g.rec.tier !== 'pass')
+    .sort((a, b) => b.rec.score - a.rec.score)
+    .slice(0, 3);
+
+  const banner = !st.cfg.key ? `
+    <div class="card p-3.5 mb-4 border-yellow-700/60 bg-yellow-950/20 flex flex-wrap items-center justify-between gap-2">
+      <div class="text-sm text-yellow-200">
+        <b>Viewing Sample Matchups:</b> Click <b>⚙ API Key</b> in the top right to paste your Odds API key and load today's live games.
+      </div>
+      <button class="btn on !py-1.5 text-xs" onclick="openCfg()">Paste API Key</button>
+    </div>` : '';
+
+  const topSummary = topPicks.length ? `
+    <div class="card p-4 mb-4 border-green-800/60 bg-[#0e1924]">
+      <div class="flex items-center justify-between mb-2.5">
+        <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Best Plays on This Board</h2>
+        <span class="text-xs text-slate-400">Highest matchup edges</span>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-2.5">
+        ${topPicks.map(g => `
+          <div class="p-3 rounded-lg bg-[#0b0f17] border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-1 mb-1">
+                <span class="tag ${g.rec.tier === 'strong' ? 't-green' : 't-blue'}">${g.rec.tierLabel}</span>
+                <span class="text-[11px] text-slate-400">${g.s}</span>
+              </div>
+              <div class="font-bold text-sm text-white mb-1">${g.rec.pickTitle.replace(/^PICK:\s*|^TAKE\s*/i, '')}</div>
+              <div class="text-xs text-slate-400 line-clamp-2">${g.rec.reason}</div>
+            </div>
+            <button class="btn on !py-1 !px-2 text-xs mt-2.5 w-full !bg-green-700 hover:!bg-green-600" onclick="openSlip('${g.id}')">+ Log Play</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : '';
+
   $('#main').innerHTML =
+    banner +
     (st.err.length ? `<div class="card p-3 mb-3 border-red-800 bg-red-950/30 text-red-300 text-sm">${st.err.join('<br>')}</div>` : '') +
+    topSummary +
     (gs.length ? gs.map(renderCard).join('') : '<div class="card p-8 text-center text-slate-400">No upcoming games match these filters.</div>');
 }
 
@@ -607,7 +677,6 @@ function renderCard(g) {
 
   return `
     <div class="card p-4 mb-4">
-      <!-- Game Header -->
       <div class="flex flex-wrap items-center gap-2 text-xs mb-3">
         <span class="tag t-blue">${g.s}</span>
         ${g.cf ? `<span class="tag t-slate">${g.cf}</span>` : ''}
@@ -616,13 +685,12 @@ function renderCard(g) {
         ${!e.indoor && (e.weather || e.temp) ? `<span class="tag t-yellow ml-auto">🌤️ ${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}</span>` : ''}
       </div>
 
-      <!-- Tale of the Tape (2 Teams) -->
       <div class="grid sm:grid-cols-2 gap-2.5 mb-3">
         ${teamBlock(g.a, rk[0], e.a, false)}
         ${teamBlock(g.h, rk[1], e.h, true)}
       </div>
 
-      <!-- THE PICK & WHY BOX -->
+      <!-- SUGGESTION & CONFIDENCE CALLOUT -->
       <div class="${boxClass} p-3.5">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-1.5">
           <div class="flex items-center gap-2">
@@ -638,7 +706,6 @@ function renderCard(g) {
         <p class="text-sm text-slate-200 leading-relaxed">${rec.reason}</p>
       </div>
 
-      <!-- Collapsible Book Comparison -->
       <div class="mt-2.5 flex items-center justify-between">
         <button class="text-xs text-slate-400 hover:text-slate-200" onclick="st.openOdds['${g.id}']=!st.openOdds['${g.id}'];render()">
           ${showOdds ? '▲ Hide sportsbook lines' : '▼ Compare DK / FD / MGM lines'}
