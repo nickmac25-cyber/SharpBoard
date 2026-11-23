@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GamePlan — Sports Matchup Picks</title>
+<title>GamePlan — Sports Expert Matchup & Prop Picks</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
@@ -12,10 +12,12 @@
   .pick-box { background: linear-gradient(135deg, #102a1e 0%, #0f1f2e 100%); border: 1px solid #15803d; border-radius: 10px; }
   .lean-box { background: linear-gradient(135deg, #17253b 0%, #111827 100%); border: 1px solid #1d4ed8; border-radius: 10px; }
   .pass-box { background: #161d2c; border: 1px solid #283347; border-radius: 10px; }
-  .tag { font-size: 11px; padding: 2px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; white-space: nowrap; }
   .t-green { background: #14532d; color: #86efac; }
   .t-blue { background: #1e3a8a; color: #93c5fd; }
   .t-yellow { background: #422006; color: #fde047; }
+  .t-purple { background: #3b0764; color: #d8b4fe; }
+  .t-orange { background: #431407; color: #fdba74; }
   .t-slate { background: #1e293b; color: #cbd5e1; }
   input, select, textarea { background: #0b0f17; border: 1px solid #2a3550; border-radius: 8px; padding: .45rem .65rem; color: #e5e7eb; width: 100%; font-size: 13px; }
   .btn { padding: .45rem .9rem; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
@@ -59,19 +61,32 @@ const S = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } c
 const W = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
 const SP = {
-  NFL:   { k: 'americanfootball_nfl', e: 'football/nfl', label: 'NFL' },
-  NCAAF: { k: 'americanfootball_ncaaf', e: 'football/college-football', g: 80, label: 'College Football' },
-  NCAAB: { k: 'basketball_ncaab', e: 'basketball/mens-college-basketball', g: 50, label: 'College Hoops' },
-  NHL:   { k: 'icehockey_nhl', e: 'hockey/nhl', label: 'NHL' },
-  MLB:   { k: 'baseball_mlb', e: 'baseball/mlb', label: 'MLB' }
+  NFL:   { k: 'americanfootball_nfl', e: 'football/nfl', label: 'NFL', propMarkets: 'player_anytime_td,player_pass_yds,player_rush_yds,player_reception_yds,player_receptions' },
+  NHL:   { k: 'icehockey_nhl', e: 'hockey/nhl', label: 'NHL', propMarkets: 'player_goal_scorer_anytime,player_points,player_shots_on_goal' },
+  NCAAF: { k: 'americanfootball_ncaaf', e: 'football/college-football', g: 80, label: 'NCAAF', propMarkets: 'player_anytime_td,player_pass_yds,player_rush_yds,player_reception_yds' },
+  MLB:   { k: 'baseball_mlb', e: 'baseball/mlb', label: 'MLB', propMarkets: 'batter_home_runs,batter_hits,batter_total_bases,pitcher_strikeouts' }
+};
+
+const PROP_LABELS = {
+  player_anytime_td: 'Anytime TD',
+  player_pass_yds: 'Pass Yards',
+  player_rush_yds: 'Rush Yards',
+  player_reception_yds: 'Rec Yards',
+  player_receptions: 'Receptions',
+  player_goal_scorer_anytime: 'Anytime Goal',
+  player_points: 'Player Points',
+  player_shots_on_goal: 'Shots on Goal',
+  batter_home_runs: 'To Hit a HR',
+  batter_hits: 'Hits O/U',
+  batter_total_bases: 'Total Bases',
+  pitcher_strikeouts: 'Pitcher Ks'
 };
 
 const BK = ['DK', 'FD', 'MGM'];
 const BN = { draftkings: 'DK', fanduel: 'FD', betmgm: 'MGM' };
-const POW = ['SEC', 'Big Ten', 'Big 12', 'ACC', 'Big East'];
+const POW = ['SEC', 'Big Ten', 'Big 12', 'ACC'];
 const CF = {
-  NCAAF: { 1:'ACC', 4:'Big 12', 5:'Big Ten', 8:'SEC', 9:'Pac-12', 12:'C-USA', 15:'MAC', 17:'MWC', 37:'Sun Belt', 151:'AAC', 18:'Ind' },
-  NCAAB: { 2:'ACC', 3:'A-10', 4:'Big East', 7:'Big Ten', 8:'Big 12', 23:'SEC', 9:'Pac-12', 46:'WCC' }
+  NCAAF: { 1:'ACC', 4:'Big 12', 5:'Big Ten', 8:'SEC', 9:'Pac-12', 12:'C-USA', 15:'MAC', 17:'MWC', 37:'Sun Belt', 151:'AAC', 18:'Ind' }
 };
 
 let st = {
@@ -80,10 +95,14 @@ let st = {
   rank: false,
   power: false,
   openOdds: {},
+  openProps: {},
+  propsData: {},
+  propsLoading: {},
+  propFilter: {},
   view: 'board',
   games: [],
   err: [],
-  cfg: S('gp_cfg', { key: '', on: { NFL: 1, NCAAF: 1, NCAAB: 1, NHL: 1, MLB: 0 }, unit: 25 }),
+  cfg: S('gp_cfg', { key: '', on: { NFL: 1, NHL: 1, NCAAF: 1, MLB: 1 }, unit: 25 }),
   bets: S('gp_bets', []),
   rem: S('gp_rem', null)
 };
@@ -92,6 +111,7 @@ let chart;
 const dec = o => o > 0 ? 1 + o / 100 : 1 + 100 / -o;
 const fm = o => o == null ? '–' : o > 0 ? '+' + o : '' + o;
 const ln = n => n > 0 ? '+' + n : '' + n;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
 async function cached(k, fn, ttl = 9e5) {
   const c = S('gp_c_' + k, null);
@@ -101,17 +121,17 @@ async function cached(k, fn, ttl = 9e5) {
   return d;
 }
 
-/* ---------- SAMPLE SLATE (SHOWN BEFORE API KEY IS ENTERED) ---------- */
+/* ---------- SAMPLE SLATE & SAMPLE PROPS ---------- */
 function getSampleGames() {
   const samples = [
     {
       id: 'samp1', s: 'NFL', a: 'New York Jets', h: 'Baltimore Ravens', ts: new Date(Date.now() + 3600000).toISOString(),
       tm: 'Sun 1:00 PM', sample: true,
-      books: { DK: { ml: [240, -295], sp: [-6.5, -110, -110], t: [45.5, -110, -110] }, FD: { ml: [245, -300], sp: [-6.5, -108, -112], t: [45.0, -110, -110] } },
+      books: { DK: { ml: [240, -295], sp: [-6.5, -110, -110], t: [48.5, -110, -110] }, FD: { ml: [245, -300], sp: [-6.5, -108, -112], t: [48.0, -110, -110] } },
       e: {
-        st: 'Sun 1:00 PM', state: 'pre', venue: 'M&T Bank Stadium', indoor: false, weather: 'Clear', temp: 44,
-        a: { short: 'Jets', rec: '3-7', split: '1-4', standings: { ppg: 18.2, papg: 24.6 }, leaders: ['B. Hall (780 Rush Yds)'] },
-        h: { short: 'Ravens', rec: '8-2', split: '4-1', standings: { ppg: 30.4, papg: 21.0 }, leaders: ['L. Jackson (2,650 Pass Yds)'] }
+        st: 'Sun 1:00 PM', state: 'pre', venue: 'M&T Bank Stadium', indoor: false, weather: 'Clear', temp: 46,
+        a: { short: 'Jets', rec: '3-8', split: '1-5', streak: 'L3', standings: { ppg: 18.2, papg: 25.4 }, leaders: ['B. Hall (840 Rush Yds)', 'G. Wilson (790 Rec Yds)'] },
+        h: { short: 'Ravens', rec: '8-3', split: '4-1', streak: 'W3', standings: { ppg: 30.8, papg: 21.0 }, leaders: ['L. Jackson (2,810 Pass Yds)', 'D. Henry (1,120 Rush Yds)'] }
       }
     },
     {
@@ -120,33 +140,71 @@ function getSampleGames() {
       books: { DK: { ml: [-155, 130], sp: [3.0, -110, -110], t: [44.5, -110, -110] }, FD: { ml: [-150, 126], sp: [3.0, -112, -108], t: [44.0, -110, -110] } },
       e: {
         st: 'Sun 4:25 PM', state: 'pre', venue: 'Soldier Field', indoor: false, weather: 'Windy 22 mph', temp: 29,
-        a: { short: 'Bills', rec: '7-3', split: '3-2', standings: { ppg: 26.8, papg: 19.5 }, leaders: ['J. Allen (22 Pass TD)'] },
-        h: { short: 'Bears', rec: '4-6', split: '3-2', standings: { ppg: 19.4, papg: 21.8 }, leaders: ['C. Williams (2,110 Pass Yds)'] }
+        a: { short: 'Bills', rec: '8-3', split: '4-2', streak: 'W2', standings: { ppg: 26.8, papg: 19.5 }, leaders: ['J. Allen (24 Pass TD)', 'J. Cook (760 Rush Yds)'] },
+        h: { short: 'Bears', rec: '4-7', split: '3-3', streak: 'L4', standings: { ppg: 19.4, papg: 22.8 }, leaders: ['C. Williams (2,240 Pass Yds)', 'D. Moore (680 Rec Yds)'] }
       }
     },
     {
-      id: 'samp3', s: 'NCAAF', a: 'Ole Miss Rebels', h: 'Florida Gators', ts: new Date(Date.now() + 10800000).toISOString(),
+      id: 'samp3', s: 'NHL', a: 'New Jersey Devils', h: 'Carolina Hurricanes', ts: new Date(Date.now() + 10800000).toISOString(),
+      tm: 'Tonight 7:00 PM', sample: true,
+      books: { DK: { ml: [125, -145], sp: [-1.5, -185, 155], t: [6.5, -105, -115] }, FD: { ml: [130, -150], sp: [-1.5, -180, 150], t: [6.5, -110, -110] } },
+      e: {
+        st: 'Tonight 7:00 PM', state: 'pre', venue: 'Lenovo Center', indoor: true,
+        a: { short: 'Devils', rec: '13-6-2', split: '8-3-0', streak: 'W3', standings: { ppg: 3.45, papg: 2.55 }, leaders: ['J. Hughes (26 PTS)', 'N. Hischier (13 G)'] },
+        h: { short: 'Hurricanes', rec: '14-5-0', split: '8-2-0', streak: 'W2', standings: { ppg: 3.65, papg: 2.45 }, leaders: ['M. Necas (30 PTS)', 'S. Aho (21 PTS)'] }
+      }
+    },
+    {
+      id: 'samp4', s: 'NCAAF', a: 'Ole Miss Rebels', h: 'Florida Gators', ts: new Date(Date.now() + 14400000).toISOString(),
       tm: 'Sat 12:00 PM', cf: 'SEC', rk: [11, null], sample: true,
       books: { DK: { ml: [-190, 158], sp: [4.5, -110, -110], t: [54.5, -110, -110] }, MGM: { ml: [-185, 155], sp: [4.5, -110, -110], t: [54.5, -110, -110] } },
       e: {
         st: 'Sat 12:00 PM', state: 'pre', venue: 'Ben Hill Griffin Stadium', indoor: false, weather: 'Sunny', temp: 68,
-        a: { short: 'Ole Miss', rec: '8-2', split: '2-2', standings: {}, leaders: ['J. Dart (3,100 Pass Yds)'] },
-        h: { short: 'Florida', rec: '5-5', split: '4-1', standings: {}, leaders: ['D. Lagway (1,620 Pass Yds)'] }
+        a: { short: 'Ole Miss', rec: '8-2', split: '2-2', streak: 'W2', standings: { ppg: 37.2, papg: 16.4 }, leaders: ['J. Dart (3,100 Pass Yds)'] },
+        h: { short: 'Florida', rec: '5-5', split: '4-1', streak: 'W1', standings: { ppg: 26.5, papg: 25.1 }, leaders: ['D. Lagway (1,620 Pass Yds)'] }
       }
     },
     {
-      id: 'samp4', s: 'NHL', a: 'New Jersey Devils', h: 'Carolina Hurricanes', ts: new Date(Date.now() + 14400000).toISOString(),
-      tm: 'Tonight 7:00 PM', sample: true,
-      books: { DK: { ml: [115, -135], sp: [-1.5, -185, 155], t: [6.0, -110, -110] } },
+      id: 'samp5', s: 'MLB', a: 'Philadelphia Phillies', h: 'New York Mets', ts: new Date(Date.now() + 18000000).toISOString(),
+      tm: 'Tue 7:10 PM', sample: true,
+      books: { DK: { ml: [-125, 105], sp: [1.5, -210, 175], t: [8.5, -110, -110] }, FD: { ml: [-120, 102], sp: [1.5, -205, 170], t: [8.5, -108, -112] } },
       e: {
-        st: 'Tonight 7:00 PM', state: 'pre', venue: 'Lenovo Center', indoor: true,
-        a: { short: 'Devils', rec: '12-6-2', split: '7-3-0', standings: { ppg: 3.4, papg: 2.6 }, leaders: ['J. Hughes (24 PTS)'] },
-        h: { short: 'Hurricanes', rec: '13-5-0', split: '7-2-0', standings: { ppg: 3.6, papg: 2.5 }, leaders: ['M. Necas (27 PTS)'] }
+        st: 'Tue 7:10 PM', state: 'pre', venue: 'Citi Field', indoor: false, weather: 'Clear', temp: 64,
+        a: { short: 'Phillies', rec: '62-44', split: '29-24', streak: 'W4', standings: { ppg: 4.9, papg: 3.9 }, leaders: ['B. Harper (.292 AVG)', 'Z. Wheeler (2.74 ERA)'] },
+        h: { short: 'Mets', rec: '55-51', split: '28-25', streak: 'L2', standings: { ppg: 4.5, papg: 4.4 }, leaders: ['F. Lindor (24 HR)', 'P. Alonso (27 HR)'] }
       }
     }
   ];
   samples.forEach(g => { g.rec = generateRecommendation(g); });
   return samples;
+}
+
+function getSampleProps(g) {
+  if (g.id === 'samp1') {
+    return [
+      { market: 'player_anytime_td', player: 'Derrick Henry', line: null, side: 'Yes', bestBook: 'DK', bestOdds: -165, books: { DK: -165, FD: -175 }, confidence: 84, badge: { text: '🎯 Red-Zone Anchor', cls: 't-green' }, reason: 'Ravens favored by 6.5 at home with a 48.5 total against a Jets run defense allowing 25.4 PPG.' },
+      { market: 'player_anytime_td', player: 'Zay Flowers', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 145, books: { DK: 135, FD: 145 }, confidence: 71, badge: { text: '💰 Plus-Money TD', cls: 't-purple' }, reason: 'Primary perimeter target in an offense averaging 30.8 PPG; strong plus-money value on FD.' },
+      { market: 'player_anytime_td', player: 'Breece Hall', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 120, books: { DK: 120, FD: 115 }, confidence: 68, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Focal point of Jets red-zone touches even in trailing game scripts.' },
+      { market: 'player_rush_yds', player: 'Derrick Henry', line: 88.5, side: 'Over', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 81, badge: { text: '🎯 Script Fit', cls: 't-green' }, reason: 'Favorite game script (-6.5) projects heavy second-half clock-control carries.' },
+      { market: 'player_receptions', player: 'Garrett Wilson', line: 6.5, side: 'Over', bestBook: 'FD', bestOdds: -105, books: { DK: -115, FD: -105 }, confidence: 76, badge: { text: '🎯 Trailing Script', cls: 't-blue' }, reason: 'Underdog pass volume spikes when trailing by a touchdown on the road.' }
+    ];
+  }
+  if (g.id === 'samp2') {
+    return [
+      { market: 'player_rush_yds', player: 'James Cook', line: 68.5, side: 'Over', bestBook: 'FD', bestOdds: -110, books: { DK: -115, FD: -110 }, confidence: 83, badge: { text: '🌬️ Wind Script', cls: 't-green' }, reason: '22 mph winds at Soldier Field push Buffalo toward a ground-heavy attack.' },
+      { market: 'player_pass_yds', player: 'Caleb Williams', line: 214.5, side: 'Under', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -112 }, confidence: 79, badge: { text: '🌬️ Weather Fade', cls: 't-orange' }, reason: '29°F with 22 mph gusts against a Bills defense allowing just 19.5 PPG.' },
+      { market: 'player_anytime_td', player: 'Josh Allen', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 115, books: { DK: 115, FD: 105 }, confidence: 75, badge: { text: '💰 Plus-Money TD', cls: 't-purple' }, reason: 'Red-zone designed QB runs spike in windy road games.' }
+    ];
+  }
+  if (g.id === 'samp3') {
+    return [
+      { market: 'player_goal_scorer_anytime', player: 'Jack Hughes', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 140, books: { DK: 130, FD: 140 }, confidence: 77, badge: { text: '⚡ High-Pace 6.5', cls: 't-purple' }, reason: 'Two top-5 scoring offenses (combined 7.1 GPG) in a 6.5 total game.' },
+      { market: 'player_shots_on_goal', player: 'Martin Necas', line: 3.5, side: 'Over', bestBook: 'DK', bestOdds: -115, books: { DK: -115, FD: -120 }, confidence: 74, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Leading Hurricanes scorer (30 PTS) on home ice.' }
+    ];
+  }
+  return [
+    { market: g.s === 'MLB' ? 'batter_hits' : 'player_anytime_td', player: g.e?.h?.leaders?.[0]?.split(' (')[0] || 'Featured Star', line: g.s === 'MLB' ? 1.5 : null, side: g.s === 'MLB' ? 'Over' : 'Yes', bestBook: 'DK', bestOdds: 125, books: { DK: 125, FD: 120 }, confidence: 72, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Connect your Odds API key to pull live player prop boards for this matchup.' }
+  ];
 }
 
 /* ---------- FETCH ODDS ---------- */
@@ -192,7 +250,141 @@ async function oddsFetch(sp) {
   });
 }
 
-/* ---------- FETCH ESPN SCOREBOARD + TEAM STATS ---------- */
+/* ---------- FETCH ON-DEMAND EVENT PROPS ---------- */
+async function loadProps(gameId) {
+  st.openProps[gameId] = !st.openProps[gameId];
+  if (!st.openProps[gameId]) { render(); return; }
+  if (st.propsData[gameId]) { render(); return; }
+
+  const g = st.games.find(x => x.id === gameId);
+  if (!g) return;
+
+  if (!st.cfg.key || g.sample) {
+    st.propsData[gameId] = getSampleProps(g);
+    render();
+    return;
+  }
+
+  st.propsLoading[gameId] = true;
+  render();
+
+  try {
+    const markets = SP[g.s].propMarkets;
+    const raw = await cached('props_' + gameId, async () => {
+      const u = `https://api.the-odds-api.com/v4/sports/${SP[g.s].k}/events/${gameId}/odds?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=${markets}&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
+      const res = await fetch(u);
+      if (!res.ok) throw new Error(`Props unavailable (${res.status})`);
+      const rm = res.headers.get('x-requests-remaining');
+      if (rm != null) { st.rem = rm; W('gp_rem', rm); }
+      return res.json();
+    }, 12e5); // Cache props 20 mins per game
+
+    st.propsData[gameId] = parseAndScoreProps(g, raw);
+  } catch (err) {
+    st.propsData[gameId] = { error: err.message };
+  } finally {
+    st.propsLoading[gameId] = false;
+    render();
+  }
+}
+
+function parseAndScoreProps(g, raw) {
+  const map = {};
+  (raw.bookmakers || []).forEach(b => {
+    const bk = BN[b.key];
+    if (!bk) return;
+    (b.markets || []).forEach(m => {
+      (m.outcomes || []).forEach(o => {
+        const player = o.description || o.name;
+        const side = o.description ? o.name : 'Yes'; // Over/Under vs Yes (Anytime TD/Goal)
+        if (side === 'No') return; // Skip expensive Anytime TD "No" props
+        const line = o.point ?? null;
+        const key = `${m.key}|${player}|${side}|${line}`;
+        if (!map[key]) {
+          map[key] = { market: m.key, player, side, line, books: {}, bestOdds: -99999, bestBook: bk };
+        }
+        map[key].books[bk] = o.price;
+        if (dec(o.price) > dec(map[key].bestOdds)) {
+          map[key].bestOdds = o.price;
+          map[key].bestBook = bk;
+        }
+      });
+    });
+  });
+
+  const e = g.e || {};
+  const firstBook = Object.values(g.books)[0] || {};
+  const total = firstBook.t ? firstBook.t[0] : null;
+  const homeSpread = firstBook.sp ? firstBook.sp[0] : null;
+  const isWindy = !e.indoor && /wind/i.test(e.weather || '');
+  const leaderText = [...(e.a?.leaders || []), ...(e.h?.leaders || [])].join(' ').toLowerCase();
+
+  return Object.values(map).map(p => {
+    let conf = 58;
+    let badge = { text: '📊 Standard Line', cls: 't-slate' };
+    const reasons = [];
+
+    const lastName = p.player.split(' ').pop().toLowerCase();
+    const isLeader = lastName.length > 2 && leaderText.includes(lastName);
+    if (isLeader) {
+      conf += 10;
+      badge = { text: '⭐ Team Leader', cls: 't-blue' };
+      reasons.push('Featured team stat leader in this matchup');
+    }
+
+    // Script matching by sport & market
+    if (g.s === 'NFL' || g.s === 'NCAAF') {
+      const highTotal = total && total >= (g.s === 'NFL' ? 47.5 : 56.5);
+      if (p.market === 'player_anytime_td') {
+        if (highTotal) {
+          conf += 12;
+          badge = { text: '⚡ Shootout TD', cls: 't-green' };
+          reasons.push(`High game total (${total}) projects multiple red-zone trips`);
+        } else if (p.bestOdds >= 110 && p.bestOdds <= 240) {
+          conf += 8;
+          badge = { text: '💰 Plus-Money TD', cls: 't-purple' };
+          reasons.push(`Strong plus-money payout (${fm(p.bestOdds)}) on ${p.bestBook}`);
+        }
+      }
+      if (isWindy && p.market === 'player_rush_yds' && p.side === 'Over') {
+        conf += 14;
+        badge = { text: '🌬️ Wind Script', cls: 't-green' };
+        reasons.push(`Outdoor wind (${e.weather}) boosts rushing volume`);
+      }
+      if (isWindy && p.market === 'player_pass_yds' && p.side === 'Under') {
+        conf += 13;
+        badge = { text: '🌬️ Weather Fade', cls: 't-orange' };
+        reasons.push(`Windy conditions (${e.weather}) limit deep passing efficiency`);
+      }
+      if (homeSpread != null && Math.abs(homeSpread) >= 6.5 && p.market === 'player_rush_yds' && p.side === 'Over') {
+        conf += 8;
+        badge = { text: '🎯 Game Script', cls: 't-green' };
+        reasons.push('Double-digit or near-TD spread favors late-game clock control');
+      }
+    }
+
+    if (g.s === 'NHL' && total && total >= 6.5 && (p.market === 'player_goal_scorer_anytime' || p.market === 'player_points')) {
+      conf += 11;
+      badge = { text: '⚡ High-Pace 6.5', cls: 't-purple' };
+      reasons.push('High 6.5 goal total boosts top-line scoring volume');
+    }
+
+    // Line-shopping edge bonus
+    const bookPrices = Object.values(p.books);
+    if (bookPrices.length >= 2) {
+      const spreadDiff = Math.max(...bookPrices.map(dec)) - Math.min(...bookPrices.map(dec));
+      if (spreadDiff >= 0.12) {
+        conf += 6;
+        reasons.push(`Line-shopping edge: ${p.bestBook} offers ${fm(p.bestOdds)}`);
+      }
+    }
+
+    if (!reasons.length) reasons.push(`Best available price at ${p.bestBook} (${fm(p.bestOdds)})`);
+    return { ...p, confidence: clamp(conf, 50, 92), badge, reason: reasons.join('. ') + '.' };
+  }).sort((a, b) => b.confidence - a.confidence);
+}
+
+/* ---------- FETCH ESPN SCOREBOARD + STANDINGS ---------- */
 async function espnFetch(sp) {
   const c = SP[sp];
   return cached('espn_' + sp, async () => {
@@ -207,6 +399,7 @@ async function espnFetch(sp) {
         const recs = q.records || [];
         const overall = (recs.find(r => r.type === 'total') || recs[0] || {}).summary || '';
         const split = (recs.find(r => r.type === (side === 'home' ? 'home' : 'road')) || {}).summary || '';
+        const last10 = (recs.find(r => r.type === 'last10' || r.name === 'Last Ten Games') || {}).summary || '';
         const leaders = (q.leaders || []).slice(0, 2).map(l =>
           `${l.shortDisplayName}: ${l.leaders?.[0]?.athlete?.shortName} (${l.leaders?.[0]?.displayValue})`
         );
@@ -221,6 +414,7 @@ async function espnFetch(sp) {
           rk: q.curatedRank && q.curatedRank.current > 0 && q.curatedRank.current <= 25 ? q.curatedRank.current : null,
           rec: overall,
           split,
+          last10,
           leaders
         };
       };
@@ -238,7 +432,6 @@ async function espnFetch(sp) {
   }, 6e5);
 }
 
-/* ---------- FETCH ESPN STANDINGS (PPG / PAPG) ---------- */
 async function standingsFetch(sp) {
   const c = SP[sp];
   return cached('stand_' + sp, async () => {
@@ -252,10 +445,15 @@ async function standingsFetch(sp) {
             const id = ent.team?.id;
             if (!id) return;
             const stMap = {};
-            (ent.stats || []).forEach(s => { stMap[s.name] = s.value; });
+            const strMap = {};
+            (ent.stats || []).forEach(s => {
+              stMap[s.name] = s.value;
+              strMap[s.name] = s.displayValue;
+            });
             map[id] = {
               ppg: stMap.avgPointsFor ?? stMap.pointsFor ?? null,
-              papg: stMap.avgPointsAgainst ?? stMap.pointsAgainst ?? null
+              papg: stMap.avgPointsAgainst ?? stMap.pointsAgainst ?? null,
+              streak: strMap.streak || ''
             };
           });
         }
@@ -321,22 +519,28 @@ function bestLine(books, market, side) {
   return best;
 }
 
-/* ---------- DECISION ENGINE: WHAT TO PICK & WHY ---------- */
+/* ---------- SPORTS EXPERT HANDICAPPING ENGINE ---------- */
 function generateRecommendation(g) {
   const e = g.e;
   const firstBook = Object.values(g.books)[0] || {};
   const homeSpread = firstBook.sp ? firstBook.sp[0] : null;
   const total = firstBook.t ? firstBook.t[0] : null;
+  const bestOver = bestLine(g.books, 't', 'o');
+  const bestUnder = bestLine(g.books, 't', 'u');
 
   if (!e) {
     const fallback = bestLine(g.books, 'ml', 'h');
     return {
       tier: 'pass',
-      score: 0,
-      tierLabel: 'LIMITED DATA',
-      pickTitle: 'No Automated Pick — Matchup Data Pending',
-      reason: 'Live odds are loaded, but team records and matchup stats have not synced for this game yet.',
-      bet: fallback ? { market: 'ml', side: 'h', label: `${g.h} ML`, ...fallback } : null
+      confidence: 45,
+      sideConf: 45,
+      totalConf: 45,
+      badges: [{ text: '⏳ Pending Sync', cls: 't-slate' }],
+      pickTitle: 'Matchup Stats Syncing',
+      reason: 'Sportsbook lines are live, but team records and efficiency stats have not synced for this date yet.',
+      bet: fallback ? { market: 'ml', side: 'h', label: `${g.h} ML`, ...fallback } : null,
+      bestOver,
+      bestUnder
     };
   }
 
@@ -346,105 +550,143 @@ function generateRecommendation(g) {
   const hHome = parseRec(e.h.split);
   const aSt = e.a.standings || {};
   const hSt = e.h.standings || {};
+  const aStreak = e.a.streak || aSt.streak || '';
+  const hStreak = e.h.streak || hSt.streak || '';
 
-  let homeScore = 0;
-  let awayScore = 0;
-  let overScore = 0;
-  let underScore = 0;
+  let homeEdge = 0;
+  let awayEdge = 0;
+  let overEdge = 0;
+  let underEdge = 0;
   const homeReasons = [];
   const awayReasons = [];
   const totalReasons = [];
+  const badges = [];
 
-  // 1. Season Win% Gap
-  if (aRec && hRec && aRec.gp >= 3 && hRec.gp >= 3) {
-    const pctGap = hRec.pct - aRec.pct;
-    if (pctGap >= 0.22) {
-      homeScore += 2.5;
-      homeReasons.push(`${e.h.short} (${e.h.rec}) has been noticeably stronger all season than ${e.a.short} (${e.a.rec})`);
-    } else if (pctGap <= -0.22) {
-      awayScore += 2.5;
-      awayReasons.push(`${e.a.short} (${e.a.rec}) owns a clear record advantage over ${e.h.short} (${e.h.rec})`);
+  // 1. Spread-Adjusted Power & Scoring Efficiency (All Sports)
+  if (aSt.ppg && hSt.ppg && aSt.papg && hSt.papg) {
+    const aNet = Number(aSt.ppg) - Number(aSt.papg);
+    const hNet = Number(hSt.ppg) - Number(hSt.papg);
+    // Home team expected margin = (Home Net - Away Net)/2 + sport home field edge
+    const hfa = g.s === 'NFL' ? 2.0 : g.s === 'NCAAF' ? 2.8 : g.s === 'NHL' ? 0.25 : 0.35;
+    const projHomeMargin = (hNet - aNet) + hfa;
+    const marketHomeMargin = homeSpread != null ? -homeSpread : 0;
+    const spreadValue = projHomeMargin - marketHomeMargin;
+
+    const thresh = (g.s === 'NFL' || g.s === 'NCAAF') ? 3.5 : 0.65;
+    if (homeSpread != null && spreadValue >= thresh) {
+      homeEdge += 3.0;
+      homeReasons.push(`${e.h.short}'s scoring efficiency (${hNet >= 0 ? '+' : ''}${hNet.toFixed(1)} net) projects stronger than the ${ln(homeSpread)} line`);
+    } else if (homeSpread != null && spreadValue <= -thresh) {
+      awayEdge += 3.0;
+      awayReasons.push(`${e.a.short}'s scoring differential (${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)} net) holds clear line value vs. ${ln(-homeSpread)}`);
+    }
+
+    // Projected Combined Total vs Posted O/U
+    const projTotal = (Number(aSt.ppg) + Number(hSt.papg) + Number(hSt.ppg) + Number(aSt.papg)) / 2;
+    const totThresh = g.s === 'NFL' ? 3.5 : g.s === 'NCAAF' ? 4.5 : g.s === 'NHL' ? 0.55 : 0.75;
+    if (total && projTotal - total >= totThresh) {
+      overEdge += 3.0;
+      totalReasons.push(`Matchup pace & scoring rates project ~${projTotal.toFixed(1)} combined against a ${total} O/U`);
+      badges.push({ text: '⚡ Shootout Script', cls: 't-purple' });
+    } else if (total && total - projTotal >= totThresh) {
+      underEdge += 3.0;
+      totalReasons.push(`Defensive suppression & scoring rates project ~${projTotal.toFixed(1)} combined under the ${total} total`);
     }
   }
 
-  // 2. Home Dominance vs Road Struggles
-  if (hHome && hHome.gp >= 3 && hHome.pct >= 0.70) {
-    homeScore += 2;
-    homeReasons.push(`${e.h.short} protects home turf (${e.h.split} at home)`);
+  // 2. Recent Momentum & Streaks
+  const parseStreak = s => {
+    const m = /^([WL])(\d+)$/i.exec(s);
+    return m ? { type: m[1].toUpperCase(), len: Number(m[2]) } : null;
+  };
+  const aStr = parseStreak(aStreak);
+  const hStr = parseStreak(hStreak);
+  if (hStr && hStr.type === 'W' && hStr.len >= 3) {
+    homeEdge += 1.5;
+    homeReasons.push(`${e.h.short} enters in peak form on a ${hStreak} streak`);
   }
-  if (aRoad && aRoad.gp >= 3 && aRoad.pct <= 0.30) {
-    homeScore += 2;
-    homeReasons.push(`${e.a.short} has struggled away from home (${e.a.split} on the road)`);
-  } else if (aRoad && aRoad.gp >= 3 && aRoad.pct >= 0.70) {
-    awayScore += 2;
-    awayReasons.push(`${e.a.short} travels well (${e.a.split} road record)`);
+  if (aStr && aStr.type === 'W' && aStr.len >= 3) {
+    awayEdge += 1.5;
+    awayReasons.push(`${e.a.short} carries strong momentum on a ${aStreak} streak`);
   }
-  if (hHome && hHome.gp >= 3 && hHome.pct <= 0.33) {
-    awayScore += 1.5;
-    awayReasons.push(`${e.h.short} hasn't defended home court/field (${e.h.split} at home)`);
+  if (hStr && hStr.type === 'L' && hStr.len >= 3) {
+    awayEdge += 1.2;
+    awayReasons.push(`fading ${e.h.short} amid a ${hStreak} slide`);
   }
-
-  // 3. Scoring Offense vs Defense Matchup
-  if (aSt.ppg && hSt.ppg && aSt.papg && hSt.papg && g.s === 'NFL') {
-    const aNet = aSt.ppg - aSt.papg;
-    const hNet = hSt.ppg - hSt.papg;
-    const netDiff = hNet - aNet;
-    const avgCombined = (aSt.ppg + hSt.papg + hSt.ppg + aSt.papg) / 2;
-
-    if (netDiff >= 4.5) {
-      homeScore += 2.5;
-      homeReasons.push(`${e.h.short} outscores opponents by +${hNet.toFixed(1)} PPG vs. ${e.a.short}'s ${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)} PPG margin`);
-    } else if (netDiff <= -4.5) {
-      awayScore += 2.5;
-      awayReasons.push(`${e.a.short} carries a +${aNet.toFixed(1)} PPG scoring margin vs. ${e.h.short}'s ${hNet >= 0 ? '+' : ''}${hNet.toFixed(1)} PPG`);
-    }
-
-    if (total && avgCombined - total >= 4.0) {
-      overScore += 2.5;
-      totalReasons.push(`Both teams' scoring averages project ~${avgCombined.toFixed(1)} combined points against a ${total} total`);
-    } else if (total && total - avgCombined >= 4.0) {
-      underScore += 2.5;
-      totalReasons.push(`Combined scoring trends (~${avgCombined.toFixed(1)} PPG) sit well below the ${total} total`);
-    }
+  if (aStr && aStr.type === 'L' && aStr.len >= 3) {
+    homeEdge += 1.2;
+    homeReasons.push(`capitalizing on ${e.a.short}'s ${aStreak} slump`);
   }
 
-  // 4. College Ranked Road Trap Spot
-  if ((g.s === 'NCAAF' || g.s === 'NCAAB') && g.rk) {
+  // 3. Venue Dominance & Road Vulnerability
+  if (hHome && hHome.gp >= 4 && hHome.pct >= 0.72) {
+    homeEdge += 1.8;
+    homeReasons.push(`${e.h.short} dominates at home (${e.h.split})`);
+  }
+  if (aRoad && aRoad.gp >= 4 && aRoad.pct <= 0.30) {
+    homeEdge += 1.8;
+    homeReasons.push(`${e.a.short} struggles away (${e.a.split} road)`);
+  } else if (aRoad && aRoad.gp >= 4 && aRoad.pct >= 0.68) {
+    awayEdge += 1.8;
+    awayReasons.push(`${e.a.short} thrives as a road team (${e.a.split})`);
+  }
+
+  // 4. Situational Spots (College Ranked Trap & Tight Conference Grinders)
+  if (g.s === 'NCAAF' && g.rk) {
     const [rkA, rkH] = g.rk;
     if (rkA && !rkH && homeSpread != null && homeSpread > 0 && homeSpread <= 6.5) {
-      homeScore += 2.5;
-      homeReasons.push(`Ranked road trap: #${rkA} ${e.a.short} is laying under a touchdown on the road against unranked ${e.h.short}`);
+      homeEdge += 2.2;
+      homeReasons.push(`Ranked road trap spot: #${rkA} ${e.a.short} laying under a TD in a hostile road venue`);
+      badges.push({ text: '🪤 Ranked Trap', cls: 't-orange' });
     }
   }
-
-  // 5. Weather Impact
-  const isBadWeather = !e.indoor && ((e.temp && e.temp <= 34) || /wind|rain|snow|storm/i.test(e.weather));
-  if (isBadWeather && total != null) {
-    underScore += 2.5;
-    totalReasons.push(`Tough outdoor conditions (${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}) favor defense and clock-chewing possessions`);
+  if (g.cf && homeSpread != null && Math.abs(homeSpread) <= 3.5 && total != null) {
+    underEdge += 1.5;
+    totalReasons.push(`Tight ${g.cf} conference matchup (${ln(homeSpread)}) favors physical, clock-draining drives`);
+    badges.push({ text: '🔒 Conference Grinder', cls: 't-blue' });
   }
 
-  const sideDiff = Math.abs(homeScore - awayScore);
-  const topSideScore = Math.max(homeScore, awayScore);
-  const topTotalScore = Math.max(overScore, underScore);
+  // 5. Sport-Specific Weather Impact (Wind & Precipitation, not cold alone)
+  const isOutdoor = !e.indoor;
+  const hasWindOrPrecip = isOutdoor && /wind|rain|snow|storm|gust/i.test(e.weather || '');
+  if (hasWindOrPrecip && total != null) {
+    underEdge += 2.8;
+    totalReasons.push(`Outdoor weather (${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}) disrupts passing/kicking and favors the Under`);
+    badges.push({ text: '🌬️ Weather Edge', cls: 't-orange' });
+  }
 
-  if (topTotalScore >= 2.5 && topTotalScore > topSideScore && total != null) {
-    const isOver = overScore > underScore;
-    const b = bestLine(g.books, 't', isOver ? 'o' : 'u');
+  // Calculate Dual Confidence Scales (0-100%)
+  const sideDiff = Math.abs(homeEdge - awayEdge);
+  const topSideEdge = Math.max(homeEdge, awayEdge);
+  const topTotalEdge = Math.max(overEdge, underEdge);
+
+  const sideConf = clamp(Math.round(50 + topSideEdge * 6.5 + sideDiff * 2.5), 50, 94);
+  const totalConf = clamp(Math.round(50 + topTotalEdge * 7.5), 50, 94);
+
+  // Decide Headline Play (Total vs Side)
+  if (topTotalEdge >= 2.8 && topTotalEdge >= topSideEdge && total != null) {
+    const isOver = overEdge >= underEdge;
+    const b = isOver ? bestOver : bestUnder;
     if (b) {
+      const isStrong = totalConf >= 75;
+      badges.unshift({ text: isStrong ? '🔥 High Conviction' : '👍 Solid Lean', cls: isStrong ? 't-green' : 't-blue' });
       return {
-        tier: topTotalScore >= 4 ? 'strong' : 'lean',
-        score: topTotalScore,
-        tierLabel: topTotalScore >= 4 ? '🔥 STRONG PLAY' : '👍 SOLID LEAN',
+        tier: isStrong ? 'strong' : 'lean',
+        confidence: totalConf,
+        sideConf,
+        totalConf,
+        badges: badges.slice(0, 3),
         pickTitle: `TAKE ${isOver ? 'OVER' : 'UNDER'} ${b.point} (${fm(b.odds)} at ${b.book})`,
-        reason: totalReasons.join('. ') + '.',
-        bet: { market: 't', side: isOver ? 'o' : 'u', label: `${g.a} @ ${g.h} ${isOver ? 'Over' : 'Under'} ${b.point}`, ...b }
+        reason: totalReasons.slice(0, 3).join('. ') + '.',
+        bet: { market: 't', side: isOver ? 'o' : 'u', label: `${g.a} @ ${g.h} ${isOver ? 'Over' : 'Under'} ${b.point}`, ...b },
+        bestOver,
+        bestUnder
       };
     }
   }
 
-  if (topSideScore >= 2.0 && sideDiff >= 1.5) {
-    const pickHome = homeScore > awayScore;
+  if (topSideEdge >= 2.2 && sideDiff >= 1.2) {
+    const pickHome = homeEdge > awayEdge;
     const team = pickHome ? e.h : e.a;
     const fullTeam = pickHome ? g.h : g.a;
     const reasons = pickHome ? homeReasons : awayReasons;
@@ -456,25 +698,39 @@ function generateRecommendation(g) {
     let chosen = spLine;
     let pickText = spLine ? `${team.short} ${ln(spLine.point)} (${fm(spLine.odds)} at ${spLine.book})` : '';
 
-    if (mlLine && mlLine.odds >= 100 && mlLine.odds <= 220) {
+    // Expert Risk/Value Style Badges
+    if (mlLine && mlLine.odds >= 105 && mlLine.odds <= 225) {
       chosen = mlLine;
       pickText = `${team.short} Moneyline (${fm(mlLine.odds)} at ${mlLine.book})`;
+      badges.unshift({ text: '💎 Plus-Money Dog', cls: 't-purple' });
+    } else if (spLine && spLine.point > 0) {
+      badges.unshift({ text: '🛡️ Live Underdog', cls: 't-blue' });
     } else if (spLine && Math.abs(spLine.point) >= 13.5 && mlLine && mlLine.odds >= -320) {
       chosen = mlLine;
       pickText = `${team.short} Moneyline (${fm(mlLine.odds)} at ${mlLine.book})`;
+      badges.unshift({ text: '🧱 Chalk Anchor', cls: 't-green' });
+    } else if (spLine && spLine.point < 0) {
+      badges.unshift({ text: '🎯 Favorite Value', cls: 't-green' });
     }
+
+    const isStrong = sideConf >= 75;
+    badges.unshift({ text: isStrong ? '🔥 High Conviction' : '👍 Solid Lean', cls: isStrong ? 't-green' : 't-blue' });
 
     if (chosen) {
       const extraContext = e.a.leaders?.[0] && e.h.leaders?.[0]
-        ? ` Players to watch: ${e.a.short}'s ${e.a.leaders[0]} vs. ${e.h.short}'s ${e.h.leaders[0]}.`
+        ? ` Key matchup: ${e.a.short}'s ${e.a.leaders[0]} vs. ${e.h.short}'s ${e.h.leaders[0]}.`
         : '';
       return {
-        tier: topSideScore >= 4.0 ? 'strong' : 'lean',
-        score: topSideScore,
-        tierLabel: topSideScore >= 4.0 ? '🔥 STRONG PLAY' : '👍 SOLID LEAN',
+        tier: isStrong ? 'strong' : 'lean',
+        confidence: sideConf,
+        sideConf,
+        totalConf,
+        badges: badges.slice(0, 3),
         pickTitle: `PICK: ${pickText}`,
         reason: reasons.slice(0, 3).join('. ') + '.' + extraContext,
-        bet: { market: chosen.point != null ? 'sp' : 'ml', side: sideCode, label: `${fullTeam} ${chosen.point != null ? ln(chosen.point) : 'ML'}`, ...chosen }
+        bet: { market: chosen.point != null ? 'sp' : 'ml', side: sideCode, label: `${fullTeam} ${chosen.point != null ? ln(chosen.point) : 'ML'}`, ...chosen },
+        bestOver,
+        bestUnder
       };
     }
   }
@@ -484,20 +740,23 @@ function generateRecommendation(g) {
   const fallbackBet = bestLine(g.books, 'sp', fallbackSide) || bestLine(g.books, 'ml', fallbackSide);
   return {
     tier: 'pass',
-    score: 0,
-    tierLabel: '⚖️ TOSS-UP / PASS',
-    pickTitle: 'No Clear Matchup Edge — Evenly Matched',
-    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly on paper${homeSpread != null ? ` with a tight ${ln(homeSpread)} line` : ''}. Better as a watch-only game.`,
-    bet: fallbackBet ? { market: fallbackBet.point != null ? 'sp' : 'ml', side: fallbackSide, label: `${leanHome ? g.h : g.a} ${fallbackBet.point != null ? ln(fallbackBet.point) : 'ML'}`, ...fallbackBet } : null
+    confidence: Math.max(sideConf, totalConf),
+    sideConf,
+    totalConf,
+    badges: [{ text: '⚖️ Toss-Up / Pass', cls: 't-slate' }],
+    pickTitle: 'No Clear Matchup Edge — Tight Line',
+    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly against the posted ${homeSpread != null ? ln(homeSpread) + ' spread' : 'line'}. Look to Player Props or pass.`,
+    bet: fallbackBet ? { market: fallbackBet.point != null ? 'sp' : 'ml', side: fallbackSide, label: `${leanHome ? g.h : g.a} ${fallbackBet.point != null ? ln(fallbackBet.point) : 'ML'}`, ...fallbackBet } : null,
+    bestOver,
+    bestUnder
   };
 }
 
-/* ---------- LOAD PIPELINE ---------- */
+/* ---------- PARALLEL LOAD PIPELINE ---------- */
 async function load(force) {
   if (force) Object.keys(localStorage).filter(k => k.startsWith('gp_c_')).forEach(k => localStorage.removeItem(k));
   st.err = [];
-  let gs = [];
-  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Analyzing live matchups, team records, and sportsbook lines…</div>`;
+  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Analyzing live matchups, efficiency margins, streaks, and sportsbook lines…</div>`;
 
   if (!st.cfg.key) {
     st.games = getSampleGames();
@@ -505,8 +764,8 @@ async function load(force) {
     return;
   }
 
-  for (const sp in SP) {
-    if (!st.cfg.on[sp]) continue;
+  const enabledSports = Object.keys(SP).filter(sp => st.cfg.on[sp]);
+  const results = await Promise.all(enabledSports.map(async sp => {
     try {
       const [oddsGames, espnGames, standingsMap] = await Promise.all([
         cached('odds_' + sp, () => oddsFetch(sp)),
@@ -526,24 +785,40 @@ async function load(force) {
           g.e.h.standings = standingsMap[best.h.id] || {};
           g.rk = [best.a.rk, best.h.rk];
           const m = CF[sp];
-          if (m) g.cf = m[best.h.cf] || m[best.a.cf] || '';
+          if (m) {
+            const hConf = m[best.h.cf] || '';
+            const aConf = m[best.a.cf] || '';
+            g.cf = POW.includes(hConf) ? hConf : POW.includes(aConf) ? aConf : (hConf || aConf);
+          }
         }
         g.rec = generateRecommendation(g);
       });
-
-      gs.push(...oddsGames);
+      return oddsGames;
     } catch (e) {
       st.err.push(e.message);
+      return [];
     }
-  }
+  }));
 
-  gs.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const gs = results.flat().sort((a, b) => new Date(a.ts) - new Date(b.ts));
   st.games = gs;
   render();
 }
 
 /* ---------- RENDER ---------- */
 function setView(v) { st.view = v; render(); }
+
+function confBar(label, val) {
+  const color = val >= 75 ? 'bg-green-500' : val >= 64 ? 'bg-blue-500' : 'bg-slate-500';
+  return `
+    <div class="flex items-center gap-2 text-xs">
+      <span class="text-slate-400 w-12 shrink-0">${label}</span>
+      <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div class="h-full ${color}" style="width:${val}%"></div>
+      </div>
+      <span class="font-bold text-slate-200 w-8 text-right">${val}%</span>
+    </div>`;
+}
 
 function render() {
   const hasKey = !!st.cfg.key;
@@ -558,7 +833,7 @@ function render() {
   $('#vb').classList.toggle('on', st.view === 'board');
   $('#vt').classList.toggle('on', st.view === 'bets');
 
-  const isCol = st.tab === 'NCAAF' || st.tab === 'NCAAB';
+  const isCol = st.tab === 'NCAAF';
   if (st.view === 'board') {
     $('#sub').innerHTML = `
       <label class="btn ${st.onlyStrong ? 'on' : ''}">
@@ -584,21 +859,20 @@ function render() {
 function rBoard() {
   let gs = st.games.filter(g => st.tab === 'All' || g.s === st.tab);
   if (st.onlyStrong) gs = gs.filter(g => g.rec && g.rec.tier !== 'pass');
-  if (st.tab === 'NCAAF' || st.tab === 'NCAAB') {
+  if (st.tab === 'NCAAF') {
     if (st.rank) gs = gs.filter(g => g.rk && (g.rk[0] || g.rk[1]));
     if (st.power) gs = gs.filter(g => POW.includes(g.cf));
   }
 
-  // Top 3 Picks Summary Banner
   const topPicks = [...gs]
     .filter(g => g.rec && g.rec.tier !== 'pass')
-    .sort((a, b) => b.rec.score - a.rec.score)
+    .sort((a, b) => b.rec.confidence - a.rec.confidence)
     .slice(0, 3);
 
   const banner = !st.cfg.key ? `
     <div class="card p-3.5 mb-4 border-yellow-700/60 bg-yellow-950/20 flex flex-wrap items-center justify-between gap-2">
       <div class="text-sm text-yellow-200">
-        <b>Viewing Sample Matchups:</b> Click <b>⚙ API Key</b> in the top right to paste your Odds API key and load today's live games.
+        <b>Viewing Sample Matchups:</b> Click <b>⚙ API Key</b> in the top right to paste your Odds API key and load live games + props.
       </div>
       <button class="btn on !py-1.5 text-xs" onclick="openCfg()">Paste API Key</button>
     </div>` : '';
@@ -606,16 +880,16 @@ function rBoard() {
   const topSummary = topPicks.length ? `
     <div class="card p-4 mb-4 border-green-800/60 bg-[#0e1924]">
       <div class="flex items-center justify-between mb-2.5">
-        <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Best Plays on This Board</h2>
-        <span class="text-xs text-slate-400">Highest matchup edges</span>
+        <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Highest-Confidence Plays on Board</h2>
+        <span class="text-xs text-slate-400">Ranked by Expert Model Confidence</span>
       </div>
       <div class="grid sm:grid-cols-3 gap-2.5">
         ${topPicks.map(g => `
           <div class="p-3 rounded-lg bg-[#0b0f17] border border-slate-800 flex flex-col justify-between">
             <div>
-              <div class="flex items-center justify-between gap-1 mb-1">
-                <span class="tag ${g.rec.tier === 'strong' ? 't-green' : 't-blue'}">${g.rec.tierLabel}</span>
-                <span class="text-[11px] text-slate-400">${g.s}</span>
+              <div class="flex items-center justify-between gap-1 mb-1.5">
+                <span class="tag ${g.rec.badges[0]?.cls || 't-green'}">${g.rec.badges[0]?.text || '🔥 Play'}</span>
+                <span class="text-xs font-bold text-green-400">${g.rec.confidence}% Conf</span>
               </div>
               <div class="font-bold text-sm text-white mb-1">${g.rec.pickTitle.replace(/^PICK:\s*|^TAKE\s*/i, '')}</div>
               <div class="text-xs text-slate-400 line-clamp-2">${g.rec.reason}</div>
@@ -639,12 +913,13 @@ function renderCard(g) {
   const rec = g.rec;
   const isLiveOrFinal = e.state && e.state !== 'pre';
   const showOdds = !!st.openOdds[g.id];
+  const showProps = !!st.openProps[g.id];
 
   const boxClass = rec.tier === 'strong' ? 'pick-box' : rec.tier === 'lean' ? 'lean-box' : 'pass-box';
-  const badgeClass = rec.tier === 'strong' ? 't-green' : rec.tier === 'lean' ? 't-blue' : 't-slate';
 
   const teamBlock = (name, rank, info, isHome) => {
     const stData = info?.standings || {};
+    const streak = info?.streak || stData.streak || '';
     return `
       <div class="p-3 rounded-lg bg-[#0b0f17] border border-slate-800/80">
         <div class="flex items-center justify-between mb-1.5">
@@ -655,11 +930,12 @@ function renderCard(g) {
           </div>
           ${isLiveOrFinal && info?.sc != null ? `<span class="font-extrabold text-lg text-white ml-2">${info.sc}</span>` : `<span class="text-[11px] uppercase tracking-wider text-slate-500">${isHome ? 'HOME' : 'AWAY'}</span>`}
         </div>
-        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
-          <span>Record: <b class="text-slate-200">${info?.rec || '—'}</b></span>
+        <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+          <span>Rec: <b class="text-slate-200">${info?.rec || '—'}</b></span>
           ${info?.split ? `<span>${isHome ? 'Home' : 'Road'}: <b class="text-slate-200">${info.split}</b></span>` : ''}
-          ${stData.ppg ? `<span>Scores: <b class="text-slate-200">${Number(stData.ppg).toFixed(1)}/g</b></span>` : ''}
-          ${stData.papg ? `<span>Allows: <b class="text-slate-200">${Number(stData.papg).toFixed(1)}/g</b></span>` : ''}
+          ${streak ? `<span>Streak: <b class="${streak.startsWith('W') ? 'text-green-400' : 'text-red-400'}">${streak}</b></span>` : ''}
+          ${stData.ppg ? `<span>Off: <b class="text-slate-200">${Number(stData.ppg).toFixed(1)}</b></span>` : ''}
+          ${stData.papg ? `<span>Def: <b class="text-slate-200">${Number(stData.papg).toFixed(1)}</b></span>` : ''}
         </div>
       </div>`;
   };
@@ -671,7 +947,7 @@ function renderCard(g) {
         <td class="p-1.5 font-semibold text-slate-400">${b}</td>
         <td class="p-1.5 text-center">${v.ml ? `${fm(v.ml[0])} / ${fm(v.ml[1])}` : '–'}</td>
         <td class="p-1.5 text-center">${v.sp ? `${g.h.split(' ').pop()} ${ln(v.sp[0])} (${fm(v.sp[2])})` : '–'}</td>
-        <td class="p-1.5 text-center">${v.t ? `O/U ${v.t[0]} (${fm(v.t[1])})` : '–'}</td>
+        <td class="p-1.5 text-center">${v.t ? `O ${v.t[0]} (${fm(v.t[1])}) / U ${v.t[0]} (${fm(v.t[2])})` : '–'}</td>
       </tr>`;
   }).join('');
 
@@ -690,36 +966,61 @@ function renderCard(g) {
         ${teamBlock(g.h, rk[1], e.h, true)}
       </div>
 
-      <!-- SUGGESTION & CONFIDENCE CALLOUT -->
+      <!-- EXPERT CALLOUT & CONFIDENCE SCALE -->
       <div class="${boxClass} p-3.5">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-          <div class="flex items-center gap-2">
-            <span class="tag ${badgeClass}">${rec.tierLabel}</span>
-            <span class="font-bold text-base text-white">${rec.pickTitle}</span>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="flex flex-wrap items-center gap-1.5">
+            ${(rec.badges || []).map(b => `<span class="tag ${b.cls}">${b.text}</span>`).join('')}
+            <span class="font-bold text-base text-white ml-1">${rec.pickTitle}</span>
           </div>
           ${rec.bet ? `
             <button class="btn on !py-1 !px-3 text-xs !bg-green-600 hover:!bg-green-500" onclick="openSlip('${g.id}')">
-              + Log This Pick
+              + Log Main Pick
             </button>
           ` : ''}
         </div>
-        <p class="text-sm text-slate-200 leading-relaxed">${rec.reason}</p>
+
+        <p class="text-sm text-slate-200 leading-relaxed mb-3">${rec.reason}</p>
+
+        <!-- DUAL CONFIDENCE SCALE + QUICK O/U LOGGERS -->
+        <div class="grid sm:grid-cols-2 gap-3 pt-2.5 border-t border-slate-700/60 items-center">
+          <div class="space-y-1.5">
+            ${confBar('Side', rec.sideConf)}
+            ${confBar('O/U', rec.totalConf)}
+          </div>
+          <div class="flex flex-wrap sm:justify-end gap-1.5">
+            ${rec.bestOver ? `
+              <button class="btn !py-1 !px-2.5 text-xs border border-slate-700" onclick="openCustomSlip('${g.id}', 'Over ${rec.bestOver.point}', '${rec.bestOver.book}', ${rec.bestOver.odds}, 'Game Total Over (${rec.totalConf}% O/U Confidence)')">
+                + Over ${rec.bestOver.point} (${fm(rec.bestOver.odds)} ${rec.bestOver.book})
+              </button>` : ''}
+            ${rec.bestUnder ? `
+              <button class="btn !py-1 !px-2.5 text-xs border border-slate-700" onclick="openCustomSlip('${g.id}', 'Under ${rec.bestUnder.point}', '${rec.bestUnder.book}', ${rec.bestUnder.odds}, 'Game Total Under (${rec.totalConf}% O/U Confidence)')">
+                + Under ${rec.bestUnder.point} (${fm(rec.bestUnder.odds)} ${rec.bestUnder.book})
+              </button>` : ''}
+          </div>
+        </div>
       </div>
 
-      <div class="mt-2.5 flex items-center justify-between">
+      <!-- ACTION BAR: PROPS & LINE COMPARISON -->
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <button class="btn ${showProps ? 'on' : ''} !py-1.5 !px-3 text-xs" onclick="loadProps('${g.id}')">
+          🎯 ${showProps ? 'Hide Props & Anytime TD' : 'Player Props & Anytime TD'}
+        </button>
         <button class="text-xs text-slate-400 hover:text-slate-200" onclick="st.openOdds['${g.id}']=!st.openOdds['${g.id}'];render()">
           ${showOdds ? '▲ Hide sportsbook lines' : '▼ Compare DK / FD / MGM lines'}
         </button>
       </div>
 
+      ${showProps ? renderPropsDrawer(g) : ''}
+
       ${showOdds ? `
-        <div class="mt-2 overflow-x-auto rounded-lg border border-slate-800">
+        <div class="mt-2.5 overflow-x-auto rounded-lg border border-slate-800">
           <table class="w-full">
             <tr class="bg-[#0b0f17] text-[11px] text-slate-400">
               <th class="text-left p-1.5">Book</th>
               <th class="p-1.5">Moneyline (Away / Home)</th>
               <th class="p-1.5">Home Spread</th>
-              <th class="p-1.5">Game Total</th>
+              <th class="p-1.5">Game Total (O / U)</th>
             </tr>
             ${rows}
           </table>
@@ -728,13 +1029,79 @@ function renderCard(g) {
     </div>`;
 }
 
+function renderPropsDrawer(g) {
+  if (st.propsLoading[g.id]) {
+    return `<div class="mt-3 p-4 rounded-lg bg-[#0b0f17] border border-slate-800 text-xs text-slate-400 text-center">Fetching live player props & Anytime TD lines (1 batched credit)…</div>`;
+  }
+  const pData = st.propsData[g.id];
+  if (!pData) return '';
+  if (pData.error) {
+    return `<div class="mt-3 p-3 rounded-lg bg-red-950/30 border border-red-800 text-xs text-red-300">${pData.error}</div>`;
+  }
+  if (!pData.length) {
+    return `<div class="mt-3 p-3 rounded-lg bg-[#0b0f17] border border-slate-800 text-xs text-slate-400">No player props posted yet for this game.</div>`;
+  }
+
+  const availableMarkets = ['ALL', ...new Set(pData.map(p => p.market))];
+  const activeFilter = st.propFilter[g.id] || 'ALL';
+  const filtered = activeFilter === 'ALL' ? pData : pData.filter(p => p.market === activeFilter);
+
+  return `
+    <div class="mt-3 p-3 rounded-lg bg-[#0b0f17] border border-slate-800">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+        <div class="flex flex-wrap gap-1">
+          ${availableMarkets.map(m => `
+            <button class="btn !py-1 !px-2 text-[11px] ${activeFilter === m ? 'on' : ''}" onclick="st.propFilter['${g.id}']='${m}';render()">
+              ${m === 'ALL' ? 'All Props' : (PROP_LABELS[m] || m)}
+            </button>
+          `).join('')}
+        </div>
+        <span class="text-[11px] text-slate-500">Sorted by Script Confidence</span>
+      </div>
+
+      <div class="space-y-2 max-h-80 overflow-y-auto pr-1">
+        ${filtered.slice(0, 20).map(p => {
+          const mLabel = PROP_LABELS[p.market] || p.market;
+          const propDesc = p.line != null ? `${p.player} ${p.side} ${p.line} ${mLabel}` : `${p.player} ${mLabel}`;
+          const confColor = p.confidence >= 78 ? 'text-green-400' : p.confidence >= 68 ? 'text-blue-400' : 'text-slate-300';
+          return `
+            <div class="p-2.5 rounded-lg bg-[#121826] border border-slate-800/90 flex flex-wrap items-center justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
+                  <span class="tag ${p.badge.cls}">${p.badge.text}</span>
+                  <span class="font-bold text-sm text-white">${propDesc}</span>
+                  <span class="text-xs font-bold ${confColor}">(${p.confidence}% Conf)</span>
+                </div>
+                <div class="text-xs text-slate-400">${p.reason}</div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <div class="text-right text-[11px] text-slate-400">
+                  ${BK.filter(b => p.books[b] != null).map(b => `<span class="${b === p.bestBook ? 'text-green-400 font-bold' : ''}">${b}: ${fm(p.books[b])}</span>`).join(' · ')}
+                </div>
+                <button class="btn on !py-1 !px-2.5 text-xs !bg-green-700 hover:!bg-green-600" onclick="openCustomSlip('${g.id}', '${propDesc.replace(/'/g, "\\'")}', '${p.bestBook}', ${p.bestOdds}, '${p.reason.replace(/'/g, "\\'")}')">
+                  + ${fm(p.bestOdds)}
+                </button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
 /* ---------- LOG PICK DRAWER ---------- */
 function openSlip(id) {
   const g = st.games.find(x => x.id === id);
-  const rec = g.rec;
+  const rec = g?.rec;
   if (!rec?.bet) return;
+  openCustomSlip(id, rec.bet.label, rec.bet.book, rec.bet.odds, rec.reason);
+}
 
-  st.slip = { sport: g.s, desc: `${rec.bet.label} [${rec.bet.book}]`, o: rec.bet.odds, reason: rec.reason };
+function openCustomSlip(gameId, label, book, odds, reason) {
+  const g = st.games.find(x => x.id === gameId);
+  if (!g) return;
+  const fullLabel = label.includes(g.a) || label.includes(g.h) ? label : `${g.a} @ ${g.h} — ${label}`;
+
+  st.slip = { sport: g.s, desc: `${fullLabel} [${book}]`, o: odds, reason };
   const el = $('#slip');
   el.classList.remove('hidden');
   el.innerHTML = `
@@ -743,28 +1110,28 @@ function openSlip(id) {
       <button class="text-slate-400 hover:text-white" onclick="$('#slip').classList.add('hidden')">✕</button>
     </div>
     <div class="p-2.5 rounded-lg bg-[#0b0f17] border border-slate-800 mb-3">
-      <div class="font-bold text-sm text-green-400">${rec.bet.label}</div>
-      <div class="text-xs text-slate-400 mt-0.5">${g.s} · ${fm(rec.bet.odds)} at ${rec.bet.book}</div>
+      <div class="font-bold text-sm text-green-400">${fullLabel}</div>
+      <div class="text-xs text-slate-400 mt-0.5">${g.s} · ${fm(odds)} at ${book}</div>
     </div>
 
     <div class="grid grid-cols-2 gap-2 mb-2">
       <div>
         <label class="text-xs text-slate-400">Odds</label>
-        <input id="so" type="number" value="${rec.bet.odds}">
+        <input id="so" type="number" value="${odds}">
       </div>
       <div>
         <label class="text-xs text-slate-400">Bet Size (Units)</label>
         <select id="su">
-          <option value="0.5">0.5u (Lean)</option>
+          <option value="0.5">0.5u (Lean / Prop)</option>
           <option value="1" selected>1.0u (Standard)</option>
-          <option value="2">2.0u (Strong)</option>
+          <option value="2">2.0u (High Conviction)</option>
           <option value="3">3.0u (Max Play)</option>
         </select>
       </div>
     </div>
 
-    <label class="text-xs text-slate-400 block mb-1">Matchup Reason</label>
-    <textarea id="snote" rows="3">${rec.reason}</textarea>
+    <label class="text-xs text-slate-400 block mb-1">Matchup / Script Reason</label>
+    <textarea id="snote" rows="3">${reason}</textarea>
 
     <button class="btn on w-full mt-3 !bg-green-600 hover:!bg-green-500 text-center" onclick="logBet()">Save to My Record</button>
     <p id="smsg" class="text-xs text-green-400 mt-2 text-center"></p>
