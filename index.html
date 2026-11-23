@@ -38,7 +38,7 @@
     <div class="ml-auto flex items-center gap-2 text-sm">
       <span id="mode" class="tag t-yellow"></span>
       <span id="rem" class="tag t-slate" title="Odds API Credits Remaining"></span>
-      <button class="btn" onclick="setView('board')" id="vb">Today's Picks</button>
+      <button class="btn" onclick="setView('board')" id="vb">Upcoming Picks</button>
       <button class="btn" onclick="setView('bets')" id="vt">My Record</button>
       <button class="btn" onclick="load(true)" title="Refresh live games">⟳ Sync</button>
       <button class="btn on" onclick="openCfg()">⚙ API Key</button>
@@ -89,6 +89,13 @@ const CF = {
   NCAAF: { 1:'ACC', 4:'Big 12', 5:'Big Ten', 8:'SEC', 9:'Pac-12', 12:'C-USA', 15:'MAC', 17:'MWC', 37:'Sun Belt', 151:'AAC', 18:'Ind' }
 };
 
+// Migrate older saved config cleanly
+const savedCfg = S('gp_cfg', { key: '', on: { NFL: 1, NHL: 1, NCAAF: 1, MLB: 1 }, unit: 25 });
+if (savedCfg.on) {
+  delete savedCfg.on.NCAAB;
+  if (savedCfg.on.MLB === undefined) savedCfg.on.MLB = 1;
+}
+
 let st = {
   tab: 'All',
   onlyStrong: false,
@@ -102,7 +109,7 @@ let st = {
   view: 'board',
   games: [],
   err: [],
-  cfg: S('gp_cfg', { key: '', on: { NFL: 1, NHL: 1, NCAAF: 1, MLB: 1 }, unit: 25 }),
+  cfg: savedCfg,
   bets: S('gp_bets', []),
   rem: S('gp_rem', null)
 };
@@ -153,26 +160,6 @@ function getSampleGames() {
         a: { short: 'Devils', rec: '13-6-2', split: '8-3-0', streak: 'W3', standings: { ppg: 3.45, papg: 2.55 }, leaders: ['J. Hughes (26 PTS)', 'N. Hischier (13 G)'] },
         h: { short: 'Hurricanes', rec: '14-5-0', split: '8-2-0', streak: 'W2', standings: { ppg: 3.65, papg: 2.45 }, leaders: ['M. Necas (30 PTS)', 'S. Aho (21 PTS)'] }
       }
-    },
-    {
-      id: 'samp4', s: 'NCAAF', a: 'Ole Miss Rebels', h: 'Florida Gators', ts: new Date(Date.now() + 14400000).toISOString(),
-      tm: 'Sat 12:00 PM', cf: 'SEC', rk: [11, null], sample: true,
-      books: { DK: { ml: [-190, 158], sp: [4.5, -110, -110], t: [54.5, -110, -110] }, MGM: { ml: [-185, 155], sp: [4.5, -110, -110], t: [54.5, -110, -110] } },
-      e: {
-        st: 'Sat 12:00 PM', state: 'pre', venue: 'Ben Hill Griffin Stadium', indoor: false, weather: 'Sunny', temp: 68,
-        a: { short: 'Ole Miss', rec: '8-2', split: '2-2', streak: 'W2', standings: { ppg: 37.2, papg: 16.4 }, leaders: ['J. Dart (3,100 Pass Yds)'] },
-        h: { short: 'Florida', rec: '5-5', split: '4-1', streak: 'W1', standings: { ppg: 26.5, papg: 25.1 }, leaders: ['D. Lagway (1,620 Pass Yds)'] }
-      }
-    },
-    {
-      id: 'samp5', s: 'MLB', a: 'Philadelphia Phillies', h: 'New York Mets', ts: new Date(Date.now() + 18000000).toISOString(),
-      tm: 'Tue 7:10 PM', sample: true,
-      books: { DK: { ml: [-125, 105], sp: [1.5, -210, 175], t: [8.5, -110, -110] }, FD: { ml: [-120, 102], sp: [1.5, -205, 170], t: [8.5, -108, -112] } },
-      e: {
-        st: 'Tue 7:10 PM', state: 'pre', venue: 'Citi Field', indoor: false, weather: 'Clear', temp: 64,
-        a: { short: 'Phillies', rec: '62-44', split: '29-24', streak: 'W4', standings: { ppg: 4.9, papg: 3.9 }, leaders: ['B. Harper (.292 AVG)', 'Z. Wheeler (2.74 ERA)'] },
-        h: { short: 'Mets', rec: '55-51', split: '28-25', streak: 'L2', standings: { ppg: 4.5, papg: 4.4 }, leaders: ['F. Lindor (24 HR)', 'P. Alonso (27 HR)'] }
-      }
     }
   ];
   samples.forEach(g => { g.rec = generateRecommendation(g); });
@@ -184,32 +171,19 @@ function getSampleProps(g) {
     return [
       { market: 'player_anytime_td', player: 'Derrick Henry', line: null, side: 'Yes', bestBook: 'DK', bestOdds: -165, books: { DK: -165, FD: -175 }, confidence: 84, badge: { text: '🎯 Red-Zone Anchor', cls: 't-green' }, reason: 'Ravens favored by 6.5 at home with a 48.5 total against a Jets run defense allowing 25.4 PPG.' },
       { market: 'player_anytime_td', player: 'Zay Flowers', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 145, books: { DK: 135, FD: 145 }, confidence: 71, badge: { text: '💰 Plus-Money TD', cls: 't-purple' }, reason: 'Primary perimeter target in an offense averaging 30.8 PPG; strong plus-money value on FD.' },
-      { market: 'player_anytime_td', player: 'Breece Hall', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 120, books: { DK: 120, FD: 115 }, confidence: 68, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Focal point of Jets red-zone touches even in trailing game scripts.' },
-      { market: 'player_rush_yds', player: 'Derrick Henry', line: 88.5, side: 'Over', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 81, badge: { text: '🎯 Script Fit', cls: 't-green' }, reason: 'Favorite game script (-6.5) projects heavy second-half clock-control carries.' },
-      { market: 'player_receptions', player: 'Garrett Wilson', line: 6.5, side: 'Over', bestBook: 'FD', bestOdds: -105, books: { DK: -115, FD: -105 }, confidence: 76, badge: { text: '🎯 Trailing Script', cls: 't-blue' }, reason: 'Underdog pass volume spikes when trailing by a touchdown on the road.' }
-    ];
-  }
-  if (g.id === 'samp2') {
-    return [
-      { market: 'player_rush_yds', player: 'James Cook', line: 68.5, side: 'Over', bestBook: 'FD', bestOdds: -110, books: { DK: -115, FD: -110 }, confidence: 83, badge: { text: '🌬️ Wind Script', cls: 't-green' }, reason: '22 mph winds at Soldier Field push Buffalo toward a ground-heavy attack.' },
-      { market: 'player_pass_yds', player: 'Caleb Williams', line: 214.5, side: 'Under', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -112 }, confidence: 79, badge: { text: '🌬️ Weather Fade', cls: 't-orange' }, reason: '29°F with 22 mph gusts against a Bills defense allowing just 19.5 PPG.' },
-      { market: 'player_anytime_td', player: 'Josh Allen', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 115, books: { DK: 115, FD: 105 }, confidence: 75, badge: { text: '💰 Plus-Money TD', cls: 't-purple' }, reason: 'Red-zone designed QB runs spike in windy road games.' }
-    ];
-  }
-  if (g.id === 'samp3') {
-    return [
-      { market: 'player_goal_scorer_anytime', player: 'Jack Hughes', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 140, books: { DK: 130, FD: 140 }, confidence: 77, badge: { text: '⚡ High-Pace 6.5', cls: 't-purple' }, reason: 'Two top-5 scoring offenses (combined 7.1 GPG) in a 6.5 total game.' },
-      { market: 'player_shots_on_goal', player: 'Martin Necas', line: 3.5, side: 'Over', bestBook: 'DK', bestOdds: -115, books: { DK: -115, FD: -120 }, confidence: 74, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Leading Hurricanes scorer (30 PTS) on home ice.' }
+      { market: 'player_rush_yds', player: 'Derrick Henry', line: 88.5, side: 'Over', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 81, badge: { text: '🎯 Script Fit', cls: 't-green' }, reason: 'Favorite game script (-6.5) projects heavy second-half clock-control carries.' }
     ];
   }
   return [
-    { market: g.s === 'MLB' ? 'batter_hits' : 'player_anytime_td', player: g.e?.h?.leaders?.[0]?.split(' (')[0] || 'Featured Star', line: g.s === 'MLB' ? 1.5 : null, side: g.s === 'MLB' ? 'Over' : 'Yes', bestBook: 'DK', bestOdds: 125, books: { DK: 125, FD: 120 }, confidence: 72, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Connect your Odds API key to pull live player prop boards for this matchup.' }
+    { market: 'player_anytime_td', player: 'Featured Star', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 125, books: { DK: 125, FD: 120 }, confidence: 72, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Connect your Odds API key to pull live player prop boards for this matchup.' }
   ];
 }
 
-/* ---------- FETCH ODDS ---------- */
+/* ---------- FETCH ODDS (UPCOMING GAMES ONLY) ---------- */
 async function oddsFetch(sp) {
-  const u = `https://api.the-odds-api.com/v4/sports/${SP[sp].k}/odds/?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
+  // commenceTimeFrom filters out games that have already started or finished
+  const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const u = `https://api.the-odds-api.com/v4/sports/${SP[sp].k}/odds/?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm&commenceTimeFrom=${nowIso}`;
   const res = await fetch(u);
   if (!res.ok) {
     if (res.status === 401) throw new Error('Invalid API Key — check Settings.');
@@ -219,35 +193,37 @@ async function oddsFetch(sp) {
   const rm = res.headers.get('x-requests-remaining');
   if (rm != null) { st.rem = rm; W('gp_rem', rm); }
   const j = await res.json();
-  return j.map(e => {
-    const g = {
-      id: e.id,
-      s: sp,
-      a: e.away_team,
-      h: e.home_team,
-      ts: e.commence_time,
-      tm: new Date(e.commence_time).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
-      books: {}
-    };
-    e.bookmakers.forEach(b => {
-      const n = BN[b.key];
-      if (!n) return;
-      const o = {};
-      b.markets.forEach(m => {
-        const A = m.outcomes.find(x => x.name === e.away_team);
-        const H = m.outcomes.find(x => x.name === e.home_team);
-        if (m.key === 'h2h' && A && H) o.ml = [A.price, H.price];
-        if (m.key === 'spreads' && A && H) o.sp = [H.point, A.price, H.price];
-        if (m.key === 'totals') {
-          const ov = m.outcomes.find(x => x.name === 'Over');
-          const un = m.outcomes.find(x => x.name === 'Under');
-          if (ov && un) o.t = [ov.point, ov.price, un.price];
-        }
+  return j
+    .filter(e => new Date(e.commence_time).getTime() > Date.now())
+    .map(e => {
+      const g = {
+        id: e.id,
+        s: sp,
+        a: e.away_team,
+        h: e.home_team,
+        ts: e.commence_time,
+        tm: new Date(e.commence_time).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+        books: {}
+      };
+      e.bookmakers.forEach(b => {
+        const n = BN[b.key];
+        if (!n) return;
+        const o = {};
+        b.markets.forEach(m => {
+          const A = m.outcomes.find(x => x.name === e.away_team);
+          const H = m.outcomes.find(x => x.name === e.home_team);
+          if (m.key === 'h2h' && A && H) o.ml = [A.price, H.price];
+          if (m.key === 'spreads' && A && H) o.sp = [H.point, A.price, H.price];
+          if (m.key === 'totals') {
+            const ov = m.outcomes.find(x => x.name === 'Over');
+            const un = m.outcomes.find(x => x.name === 'Under');
+            if (ov && un) o.t = [ov.point, ov.price, un.price];
+          }
+        });
+        g.books[n] = o;
       });
-      g.books[n] = o;
+      return g;
     });
-    return g;
-  });
 }
 
 /* ---------- FETCH ON-DEMAND EVENT PROPS ---------- */
@@ -277,7 +253,7 @@ async function loadProps(gameId) {
       const rm = res.headers.get('x-requests-remaining');
       if (rm != null) { st.rem = rm; W('gp_rem', rm); }
       return res.json();
-    }, 12e5); // Cache props 20 mins per game
+    }, 12e5);
 
     st.propsData[gameId] = parseAndScoreProps(g, raw);
   } catch (err) {
@@ -296,8 +272,8 @@ function parseAndScoreProps(g, raw) {
     (b.markets || []).forEach(m => {
       (m.outcomes || []).forEach(o => {
         const player = o.description || o.name;
-        const side = o.description ? o.name : 'Yes'; // Over/Under vs Yes (Anytime TD/Goal)
-        if (side === 'No') return; // Skip expensive Anytime TD "No" props
+        const side = o.description ? o.name : 'Yes';
+        if (side === 'No') return;
         const line = o.point ?? null;
         const key = `${m.key}|${player}|${side}|${line}`;
         if (!map[key]) {
@@ -332,7 +308,6 @@ function parseAndScoreProps(g, raw) {
       reasons.push('Featured team stat leader in this matchup');
     }
 
-    // Script matching by sport & market
     if (g.s === 'NFL' || g.s === 'NCAAF') {
       const highTotal = total && total >= (g.s === 'NFL' ? 47.5 : 56.5);
       if (p.market === 'player_anytime_td') {
@@ -359,7 +334,7 @@ function parseAndScoreProps(g, raw) {
       if (homeSpread != null && Math.abs(homeSpread) >= 6.5 && p.market === 'player_rush_yds' && p.side === 'Over') {
         conf += 8;
         badge = { text: '🎯 Game Script', cls: 't-green' };
-        reasons.push('Double-digit or near-TD spread favors late-game clock control');
+        reasons.push('Near-TD or bigger spread favors late-game clock control');
       }
     }
 
@@ -369,7 +344,6 @@ function parseAndScoreProps(g, raw) {
       reasons.push('High 6.5 goal total boosts top-line scoring volume');
     }
 
-    // Line-shopping edge bonus
     const bookPrices = Object.values(p.books);
     if (bookPrices.length >= 2) {
       const spreadDiff = Math.max(...bookPrices.map(dec)) - Math.min(...bookPrices.map(dec));
@@ -399,7 +373,6 @@ async function espnFetch(sp) {
         const recs = q.records || [];
         const overall = (recs.find(r => r.type === 'total') || recs[0] || {}).summary || '';
         const split = (recs.find(r => r.type === (side === 'home' ? 'home' : 'road')) || {}).summary || '';
-        const last10 = (recs.find(r => r.type === 'last10' || r.name === 'Last Ten Games') || {}).summary || '';
         const leaders = (q.leaders || []).slice(0, 2).map(l =>
           `${l.shortDisplayName}: ${l.leaders?.[0]?.athlete?.shortName} (${l.leaders?.[0]?.displayValue})`
         );
@@ -414,13 +387,13 @@ async function espnFetch(sp) {
           rk: q.curatedRank && q.curatedRank.current > 0 && q.curatedRank.current <= 25 ? q.curatedRank.current : null,
           rec: overall,
           split,
-          last10,
           leaders
         };
       };
       return {
         h: parseTeam('home'),
         a: parseTeam('away'),
+        date: ev.date,
         st: ev.status.type.shortDetail,
         state: ev.status.type.state,
         venue: comp.venue?.fullName || '',
@@ -432,9 +405,10 @@ async function espnFetch(sp) {
   }, 6e5);
 }
 
+/* ---------- FIXED STANDINGS FETCH (TRUE PER-GAME AVERAGES) ---------- */
 async function standingsFetch(sp) {
   const c = SP[sp];
-  return cached('stand_' + sp, async () => {
+  return cached('stand_v2_' + sp, async () => {
     try {
       const res = await fetch(`https://site.api.espn.com/apis/v2/sports/${c.e}/standings`);
       const j = await res.json();
@@ -447,12 +421,15 @@ async function standingsFetch(sp) {
             const stMap = {};
             const strMap = {};
             (ent.stats || []).forEach(s => {
-              stMap[s.name] = s.value;
+              stMap[s.name] = Number(s.value);
               strMap[s.name] = s.displayValue;
             });
+            const gp = stMap.gamesPlayed || ((stMap.wins || 0) + (stMap.losses || 0) + (stMap.ties || 0) + (stMap.otLosses || 0));
+            const ppg = stMap.avgPointsFor || (gp > 0 && stMap.pointsFor ? stMap.pointsFor / gp : null);
+            const papg = stMap.avgPointsAgainst || (gp > 0 && stMap.pointsAgainst ? stMap.pointsAgainst / gp : null);
             map[id] = {
-              ppg: stMap.avgPointsFor ?? stMap.pointsFor ?? null,
-              papg: stMap.avgPointsAgainst ?? stMap.pointsAgainst ?? null,
+              ppg,
+              papg,
               streak: strMap.streak || ''
             };
           });
@@ -535,17 +512,15 @@ function generateRecommendation(g) {
       confidence: 45,
       sideConf: 45,
       totalConf: 45,
-      badges: [{ text: '⏳ Pending Sync', cls: 't-slate' }],
-      pickTitle: 'Matchup Stats Syncing',
-      reason: 'Sportsbook lines are live, but team records and efficiency stats have not synced for this date yet.',
+      badges: [{ text: '⏳ Future Slate', cls: 't-slate' }],
+      pickTitle: 'Upcoming Game — Matchup Stats Pending',
+      reason: 'Sportsbook lines are posted, but team efficiency stats have not synced for this future date yet.',
       bet: fallback ? { market: 'ml', side: 'h', label: `${g.h} ML`, ...fallback } : null,
       bestOver,
       bestUnder
     };
   }
 
-  const aRec = parseRec(e.a.rec);
-  const hRec = parseRec(e.h.rec);
   const aRoad = parseRec(e.a.split);
   const hHome = parseRec(e.h.split);
   const aSt = e.a.standings || {};
@@ -562,11 +537,10 @@ function generateRecommendation(g) {
   const totalReasons = [];
   const badges = [];
 
-  // 1. Spread-Adjusted Power & Scoring Efficiency (All Sports)
+  // 1. Spread-Adjusted Power & Scoring Efficiency (True Per-Game Rates)
   if (aSt.ppg && hSt.ppg && aSt.papg && hSt.papg) {
     const aNet = Number(aSt.ppg) - Number(aSt.papg);
     const hNet = Number(hSt.ppg) - Number(hSt.papg);
-    // Home team expected margin = (Home Net - Away Net)/2 + sport home field edge
     const hfa = g.s === 'NFL' ? 2.0 : g.s === 'NCAAF' ? 2.8 : g.s === 'NHL' ? 0.25 : 0.35;
     const projHomeMargin = (hNet - aNet) + hfa;
     const marketHomeMargin = homeSpread != null ? -homeSpread : 0;
@@ -575,13 +549,12 @@ function generateRecommendation(g) {
     const thresh = (g.s === 'NFL' || g.s === 'NCAAF') ? 3.5 : 0.65;
     if (homeSpread != null && spreadValue >= thresh) {
       homeEdge += 3.0;
-      homeReasons.push(`${e.h.short}'s scoring efficiency (${hNet >= 0 ? '+' : ''}${hNet.toFixed(1)} net) projects stronger than the ${ln(homeSpread)} line`);
+      homeReasons.push(`${e.h.short}'s per-game scoring margin (${hNet >= 0 ? '+' : ''}${hNet.toFixed(1)}/g) projects stronger than the ${ln(homeSpread)} line`);
     } else if (homeSpread != null && spreadValue <= -thresh) {
       awayEdge += 3.0;
-      awayReasons.push(`${e.a.short}'s scoring differential (${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)} net) holds clear line value vs. ${ln(-homeSpread)}`);
+      awayReasons.push(`${e.a.short}'s per-game scoring differential (${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)}/g) holds clear line value vs. ${ln(-homeSpread)}`);
     }
 
-    // Projected Combined Total vs Posted O/U
     const projTotal = (Number(aSt.ppg) + Number(hSt.papg) + Number(hSt.ppg) + Number(aSt.papg)) / 2;
     const totThresh = g.s === 'NFL' ? 3.5 : g.s === 'NCAAF' ? 4.5 : g.s === 'NHL' ? 0.55 : 0.75;
     if (total && projTotal - total >= totThresh) {
@@ -631,7 +604,7 @@ function generateRecommendation(g) {
     awayReasons.push(`${e.a.short} thrives as a road team (${e.a.split})`);
   }
 
-  // 4. Situational Spots (College Ranked Trap & Tight Conference Grinders)
+  // 4. Situational Spots
   if (g.s === 'NCAAF' && g.rk) {
     const [rkA, rkH] = g.rk;
     if (rkA && !rkH && homeSpread != null && homeSpread > 0 && homeSpread <= 6.5) {
@@ -646,7 +619,7 @@ function generateRecommendation(g) {
     badges.push({ text: '🔒 Conference Grinder', cls: 't-blue' });
   }
 
-  // 5. Sport-Specific Weather Impact (Wind & Precipitation, not cold alone)
+  // 5. Weather Impact
   const isOutdoor = !e.indoor;
   const hasWindOrPrecip = isOutdoor && /wind|rain|snow|storm|gust/i.test(e.weather || '');
   if (hasWindOrPrecip && total != null) {
@@ -655,7 +628,6 @@ function generateRecommendation(g) {
     badges.push({ text: '🌬️ Weather Edge', cls: 't-orange' });
   }
 
-  // Calculate Dual Confidence Scales (0-100%)
   const sideDiff = Math.abs(homeEdge - awayEdge);
   const topSideEdge = Math.max(homeEdge, awayEdge);
   const topTotalEdge = Math.max(overEdge, underEdge);
@@ -663,7 +635,6 @@ function generateRecommendation(g) {
   const sideConf = clamp(Math.round(50 + topSideEdge * 6.5 + sideDiff * 2.5), 50, 94);
   const totalConf = clamp(Math.round(50 + topTotalEdge * 7.5), 50, 94);
 
-  // Decide Headline Play (Total vs Side)
   if (topTotalEdge >= 2.8 && topTotalEdge >= topSideEdge && total != null) {
     const isOver = overEdge >= underEdge;
     const b = isOver ? bestOver : bestUnder;
@@ -698,7 +669,6 @@ function generateRecommendation(g) {
     let chosen = spLine;
     let pickText = spLine ? `${team.short} ${ln(spLine.point)} (${fm(spLine.odds)} at ${spLine.book})` : '';
 
-    // Expert Risk/Value Style Badges
     if (mlLine && mlLine.odds >= 105 && mlLine.odds <= 225) {
       chosen = mlLine;
       pickText = `${team.short} Moneyline (${fm(mlLine.odds)} at ${mlLine.book})`;
@@ -745,18 +715,18 @@ function generateRecommendation(g) {
     totalConf,
     badges: [{ text: '⚖️ Toss-Up / Pass', cls: 't-slate' }],
     pickTitle: 'No Clear Matchup Edge — Tight Line',
-    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly against the posted ${homeSpread != null ? ln(homeSpread) + ' spread' : 'line'}. Look to Player Props or pass.`,
+    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly against the posted ${homeSpread != null ? ln(homeSpread) + ' spread' : 'line'}. Check Player Props or pass.`,
     bet: fallbackBet ? { market: fallbackBet.point != null ? 'sp' : 'ml', side: fallbackSide, label: `${leanHome ? g.h : g.a} ${fallbackBet.point != null ? ln(fallbackBet.point) : 'ML'}`, ...fallbackBet } : null,
     bestOver,
     bestUnder
   };
 }
 
-/* ---------- PARALLEL LOAD PIPELINE ---------- */
+/* ---------- PARALLEL LOAD PIPELINE (PRE-GAME ONLY) ---------- */
 async function load(force) {
   if (force) Object.keys(localStorage).filter(k => k.startsWith('gp_c_')).forEach(k => localStorage.removeItem(k));
   st.err = [];
-  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Analyzing live matchups, efficiency margins, streaks, and sportsbook lines…</div>`;
+  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Analyzing upcoming matchups, per-game efficiency, streaks, and sportsbook lines…</div>`;
 
   if (!st.cfg.key) {
     st.games = getSampleGames();
@@ -768,18 +738,26 @@ async function load(force) {
   const results = await Promise.all(enabledSports.map(async sp => {
     try {
       const [oddsGames, espnGames, standingsMap] = await Promise.all([
-        cached('odds_' + sp, () => oddsFetch(sp)),
+        cached('odds_v2_' + sp, () => oddsFetch(sp)),
         espnFetch(sp).catch(() => []),
         standingsFetch(sp).catch(() => ({}))
       ]);
 
+      const upcoming = [];
       oddsGames.forEach(g => {
+        // Double-check start time is still in the future
+        if (new Date(g.ts).getTime() <= Date.now()) return;
+
         let best = null, bs = 0;
         espnGames.forEach(e => {
           const s = (sim(g.a, e.a) + sim(g.h, e.h)) / 2;
           if (s > bs) { bs = s; best = e; }
         });
+
         if (best && bs >= 0.5) {
+          // Skip games that ESPN marks as in-progress ('in') or completed ('post')
+          if (best.state && best.state !== 'pre') return;
+
           g.e = best;
           g.e.a.standings = standingsMap[best.a.id] || {};
           g.e.h.standings = standingsMap[best.h.id] || {};
@@ -792,16 +770,16 @@ async function load(force) {
           }
         }
         g.rec = generateRecommendation(g);
+        upcoming.push(g);
       });
-      return oddsGames;
+      return upcoming;
     } catch (e) {
       st.err.push(e.message);
       return [];
     }
   }));
 
-  const gs = results.flat().sort((a, b) => new Date(a.ts) - new Date(b.ts));
-  st.games = gs;
+  st.games = results.flat().sort((a, b) => new Date(a.ts) - new Date(b.ts));
   render();
 }
 
@@ -857,7 +835,7 @@ function render() {
 }
 
 function rBoard() {
-  let gs = st.games.filter(g => st.tab === 'All' || g.s === st.tab);
+  let gs = st.games.filter(g => (st.tab === 'All' || g.s === st.tab) && new Date(g.ts).getTime() > Date.now());
   if (st.onlyStrong) gs = gs.filter(g => g.rec && g.rec.tier !== 'pass');
   if (st.tab === 'NCAAF') {
     if (st.rank) gs = gs.filter(g => g.rk && (g.rk[0] || g.rk[1]));
@@ -872,7 +850,7 @@ function rBoard() {
   const banner = !st.cfg.key ? `
     <div class="card p-3.5 mb-4 border-yellow-700/60 bg-yellow-950/20 flex flex-wrap items-center justify-between gap-2">
       <div class="text-sm text-yellow-200">
-        <b>Viewing Sample Matchups:</b> Click <b>⚙ API Key</b> in the top right to paste your Odds API key and load live games + props.
+        <b>Viewing Sample Matchups:</b> Click <b>⚙ API Key</b> in the top right to paste your Odds API key and load live upcoming games + props.
       </div>
       <button class="btn on !py-1.5 text-xs" onclick="openCfg()">Paste API Key</button>
     </div>` : '';
@@ -880,7 +858,7 @@ function rBoard() {
   const topSummary = topPicks.length ? `
     <div class="card p-4 mb-4 border-green-800/60 bg-[#0e1924]">
       <div class="flex items-center justify-between mb-2.5">
-        <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Highest-Confidence Plays on Board</h2>
+        <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Highest-Confidence Upcoming Plays</h2>
         <span class="text-xs text-slate-400">Ranked by Expert Model Confidence</span>
       </div>
       <div class="grid sm:grid-cols-3 gap-2.5">
@@ -911,7 +889,6 @@ function renderCard(g) {
   const e = g.e || {};
   const rk = g.rk || [];
   const rec = g.rec;
-  const isLiveOrFinal = e.state && e.state !== 'pre';
   const showOdds = !!st.openOdds[g.id];
   const showProps = !!st.openProps[g.id];
 
@@ -928,14 +905,14 @@ function renderCard(g) {
             ${rank ? `<span class="tag t-yellow shrink-0">#${rank}</span>` : ''}
             <span class="font-bold text-base truncate">${name}</span>
           </div>
-          ${isLiveOrFinal && info?.sc != null ? `<span class="font-extrabold text-lg text-white ml-2">${info.sc}</span>` : `<span class="text-[11px] uppercase tracking-wider text-slate-500">${isHome ? 'HOME' : 'AWAY'}</span>`}
+          <span class="text-[11px] uppercase tracking-wider text-slate-500">${isHome ? 'HOME' : 'AWAY'}</span>
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
           <span>Rec: <b class="text-slate-200">${info?.rec || '—'}</b></span>
           ${info?.split ? `<span>${isHome ? 'Home' : 'Road'}: <b class="text-slate-200">${info.split}</b></span>` : ''}
           ${streak ? `<span>Streak: <b class="${streak.startsWith('W') ? 'text-green-400' : 'text-red-400'}">${streak}</b></span>` : ''}
-          ${stData.ppg ? `<span>Off: <b class="text-slate-200">${Number(stData.ppg).toFixed(1)}</b></span>` : ''}
-          ${stData.papg ? `<span>Def: <b class="text-slate-200">${Number(stData.papg).toFixed(1)}</b></span>` : ''}
+          ${stData.ppg ? `<span>Off: <b class="text-slate-200">${Number(stData.ppg).toFixed(1)}/g</b></span>` : ''}
+          ${stData.papg ? `<span>Def: <b class="text-slate-200">${Number(stData.papg).toFixed(1)}/g</b></span>` : ''}
         </div>
       </div>`;
   };
@@ -956,7 +933,7 @@ function renderCard(g) {
       <div class="flex flex-wrap items-center gap-2 text-xs mb-3">
         <span class="tag t-blue">${g.s}</span>
         ${g.cf ? `<span class="tag t-slate">${g.cf}</span>` : ''}
-        <span class="text-slate-300 font-medium">${e.st || g.tm}</span>
+        <span class="text-slate-300 font-medium">${g.tm}</span>
         ${e.venue ? `<span class="text-slate-500">· ${e.venue}</span>` : ''}
         ${!e.indoor && (e.weather || e.temp) ? `<span class="tag t-yellow ml-auto">🌤️ ${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}</span>` : ''}
       </div>
