@@ -274,6 +274,9 @@ function parseAndScoreProps(g, raw) {
         const player = o.description || o.name;
         const side = o.description ? o.name : 'Yes';
         if (side === 'No') return;
+        // Skip D/ST / Team Defense Anytime TD props
+        if (/d\/st|defense/i.test(player)) return;
+
         const line = o.point ?? null;
         const key = `${m.key}|${player}|${side}|${line}`;
         if (!map[key]) {
@@ -296,14 +299,20 @@ function parseAndScoreProps(g, raw) {
   const leaderText = [...(e.a?.leaders || []), ...(e.h?.leaders || [])].join(' ').toLowerCase();
 
   return Object.values(map).map(p => {
-    let conf = 58;
+    // 1. Anchor confidence to realistic implied probability (1 / decimal odds)
+    const impliedPct = (1 / dec(p.bestOdds)) * 100;
+    // Scale so -110 (~52%) starts around 58%, +150 (~40%) starts around 48%, +700 (~12%) starts around 20%
+    let conf = Math.round(impliedPct * 0.92 + 10);
     let badge = { text: '📊 Standard Line', cls: 't-slate' };
     const reasons = [];
+
+    const isLongshot = p.bestOdds >= 300;
+    const isPlusMoney = p.bestOdds >= 100 && p.bestOdds < 300;
 
     const lastName = p.player.split(' ').pop().toLowerCase();
     const isLeader = lastName.length > 2 && leaderText.includes(lastName);
     if (isLeader) {
-      conf += 10;
+      conf += 8;
       badge = { text: '⭐ Team Leader', cls: 't-blue' };
       reasons.push('Featured team stat leader in this matchup');
     }
@@ -311,23 +320,26 @@ function parseAndScoreProps(g, raw) {
     if (g.s === 'NFL' || g.s === 'NCAAF') {
       const highTotal = total && total >= (g.s === 'NFL' ? 47.5 : 56.5);
       if (p.market === 'player_anytime_td') {
-        if (highTotal) {
-          conf += 12;
-          badge = { text: '⚡ Shootout TD', cls: 't-green' };
+        if (isLongshot) {
+          badge = { text: '🎰 Longshot Flyer', cls: 't-slate' };
+          reasons.push(`High-variance TD flyer (+${p.bestOdds} at ${p.bestBook})`);
+        } else if (highTotal) {
+          conf += 9;
+          badge = { text: isPlusMoney ? '💰 Shootout Value TD' : '⚡ Red-Zone Anchor', cls: isPlusMoney ? 't-purple' : 't-green' };
           reasons.push(`High game total (${total}) projects multiple red-zone trips`);
-        } else if (p.bestOdds >= 110 && p.bestOdds <= 240) {
-          conf += 8;
+        } else if (isPlusMoney) {
+          conf += 6;
           badge = { text: '💰 Plus-Money TD', cls: 't-purple' };
-          reasons.push(`Strong plus-money payout (${fm(p.bestOdds)}) on ${p.bestBook}`);
+          reasons.push(`Plus-money red-zone value (${fm(p.bestOdds)}) on ${p.bestBook}`);
         }
       }
       if (isWindy && p.market === 'player_rush_yds' && p.side === 'Over') {
-        conf += 14;
+        conf += 12;
         badge = { text: '🌬️ Wind Script', cls: 't-green' };
         reasons.push(`Outdoor wind (${e.weather}) boosts rushing volume`);
       }
       if (isWindy && p.market === 'player_pass_yds' && p.side === 'Under') {
-        conf += 13;
+        conf += 11;
         badge = { text: '🌬️ Weather Fade', cls: 't-orange' };
         reasons.push(`Windy conditions (${e.weather}) limit deep passing efficiency`);
       }
@@ -338,23 +350,32 @@ function parseAndScoreProps(g, raw) {
       }
     }
 
-    if (g.s === 'NHL' && total && total >= 6.5 && (p.market === 'player_goal_scorer_anytime' || p.market === 'player_points')) {
-      conf += 11;
+    if (g.s === 'NHL' && total && total >= 6.5 && (p.market === 'player_goal_scorer_anytime' || p.market === 'player_points') && !isLongshot) {
+      conf += 9;
       badge = { text: '⚡ High-Pace 6.5', cls: 't-purple' };
       reasons.push('High 6.5 goal total boosts top-line scoring volume');
     }
 
-    const bookPrices = Object.values(p.books);
-    if (bookPrices.length >= 2) {
-      const spreadDiff = Math.max(...bookPrices.map(dec)) - Math.min(...bookPrices.map(dec));
-      if (spreadDiff >= 0.12) {
-        conf += 6;
-        reasons.push(`Line-shopping edge: ${p.bestBook} offers ${fm(p.bestOdds)}`);
+    // 2. Relative line-shopping edge (8%+ better payout than multi-book average)
+    const bookDecs = Object.values(p.books).map(dec);
+    if (bookDecs.length >= 2) {
+      const avgDec = bookDecs.reduce((a, b) => a + b, 0) / bookDecs.length;
+      if (dec(p.bestOdds) / avgDec >= 1.08) {
+        conf += 4;
+        reasons.push(`Line-shopping edge: ${p.bestBook} offers ${fm(p.bestOdds)} vs. market avg`);
       }
     }
 
     if (!reasons.length) reasons.push(`Best available price at ${p.bestBook} (${fm(p.bestOdds)})`);
-    return { ...p, confidence: clamp(conf, 50, 92), badge, reason: reasons.join('. ') + '.' };
+
+    // Cap longshots so +600 flyers never outrank primary starters
+    const maxCap = isLongshot ? 38 : isPlusMoney ? 68 : 88;
+    return {
+      ...p,
+      confidence: clamp(conf, 15, maxCap),
+      badge,
+      reason: reasons.join('. ') + '.'
+    };
   }).sort((a, b) => b.confidence - a.confidence);
 }
 
