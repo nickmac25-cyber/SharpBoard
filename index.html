@@ -241,11 +241,13 @@ async function oddsFetch(sp) {
     });
 }
 
-/* ---------- FETCH ESPN SCOREBOARD, STANDINGS & SUMMARY ---------- */
-async function espnFetch(sp) {
+/* ---------- FETCH ESPN SCOREBOARD BY DATE, STANDINGS & SUMMARY ---------- */
+async function espnFetchByDate(sp, dateStr) {
   const c = SP[sp];
-  return cached('espn_v6_' + sp, async () => {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/${c.e}/scoreboard?limit=300` + (c.g ? `&groups=${c.g}` : '');
+  const key = `espn_d_v7_${sp}_${dateStr || 'now'}`;
+  return cached(key, async () => {
+    const qDate = dateStr ? `&dates=${dateStr}` : '';
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${c.e}/scoreboard?limit=300${qDate}` + (c.g ? `&groups=${c.g}` : '');
     const res = await safeFetchJson(url);
     if (!res.ok || !res.data) return [];
     return (res.data.events || []).map(ev => {
@@ -287,13 +289,13 @@ async function espnFetch(sp) {
         temp: ev.weather?.temperature || null
       };
     });
-  }, 6e5);
+  }, 9e5);
 }
 
 async function standingsFetch(sp) {
   const c = SP[sp];
-  return cached('stand_v6_' + sp, async () => {
-    const res = await safeFetchJson(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/standings`);
+  return cached('stand_v7_' + sp, async () => {
+    const res = await safeFetchJson(`https://site.api.espn.com/apis/v2/sports/${c.e}/standings`);
     if (!res.ok || !res.data) return {};
     const map = {};
     const walk = node => {
@@ -323,7 +325,7 @@ async function standingsFetch(sp) {
 async function fetchGameSummary(sp, espnEventId) {
   if (!espnEventId) return null;
   const c = SP[sp];
-  return cached('sum_v6_' + espnEventId, async () => {
+  return cached('sum_v7_' + espnEventId, async () => {
     const res = await safeFetchJson(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/summary?event=${espnEventId}`);
     if (!res.ok || !res.data) return null;
     const injuries = (res.data.injuries || []).map(teamInj => {
@@ -361,7 +363,7 @@ async function loadProps(gameId) {
   try {
     const markets = SP[g.s].propMarkets;
     const [propRes, summary] = await Promise.all([
-      cached('props_v6_' + gameId, async () => {
+      cached('props_v7_' + gameId, async () => {
         const u = `https://api.the-odds-api.com/v4/sports/${SP[g.s].k}/events/${gameId}/odds?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=${markets}&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
         const res = await safeFetchJson(u);
         if (!res.ok) throw new Error(`Props unavailable (${res.status || res.error})`);
@@ -634,6 +636,16 @@ function generateRecommendation(g) {
       totalReasons.push(`Defensive rates project ~${projTotal.toFixed(1)} combined under the ${total} total`);
       badges.push({ text: '🛡️ Defensive Battle', cls: 't-blue' });
     }
+  } else if (aRec && hRec) {
+    // Fallback to overall win-rate comparison when PPG/PAPG aren't populated yet
+    const pctDiff = hRec.pct - aRec.pct;
+    if (pctDiff >= 0.22) {
+      homeEdge += 2.4;
+      homeReasons.push(`${e.h.short} (${e.h.rec}) holds a strong overall record edge over ${e.a.short} (${e.a.rec})`);
+    } else if (pctDiff <= -0.22) {
+      awayEdge += 2.4;
+      awayReasons.push(`${e.a.short} (${e.a.rec}) holds a strong overall record edge over ${e.h.short} (${e.h.rec})`);
+    }
   }
 
   const parseStreak = s => {
@@ -786,12 +798,12 @@ function generateRecommendation(g) {
   };
 }
 
-/* ---------- PARALLEL LOAD PIPELINE WITH SAFE FALLBACKS ---------- */
+/* ---------- DATE-AWARE PARALLEL LOAD PIPELINE ---------- */
 async function load(force) {
   if (force) Object.keys(localStorage).filter(k => k.startsWith('gp_c_')).forEach(k => localStorage.removeItem(k));
   st.err = [];
   st.debugInfo = '';
-  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Syncing sportsbook lines, ESPN team efficiency, records, and streaks…</div>`;
+  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Syncing sportsbook lines, date-matched ESPN team stats, records, and streaks…</div>`;
 
   if (!st.cfg.key) {
     st.games = getSampleGames();
@@ -809,20 +821,33 @@ async function load(force) {
   }
 
   let liveCount = 0;
+  let matchedCount = 0;
   const results = await Promise.all(enabledSports.map(async sp => {
     try {
-      const [oddsGames, espnGames, standingsMap] = await Promise.all([
-        cached('odds_v6_' + sp, () => oddsFetch(sp)),
-        espnFetch(sp).catch(() => []),
+      const oddsGames = await cached('odds_v7_' + sp, () => oddsFetch(sp));
+      if (!oddsGames || !oddsGames.length) return [];
+
+      // Collect all unique calendar dates (UTC + local) for upcoming games so future slates match ESPN
+      const dateSet = new Set();
+      oddsGames.forEach(g => {
+        const dt = new Date(g.ts);
+        dateSet.add(dt.toISOString().slice(0, 10).replace(/-/g, ''));
+        const localYmd = `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}${String(dt.getDate()).padStart(2, '0')}`;
+        dateSet.add(localYmd);
+      });
+
+      const [dateBatches, standingsMap] = await Promise.all([
+        Promise.all([...dateSet].map(d => espnFetchByDate(sp, d).catch(() => []))),
         standingsFetch(sp).catch(() => ({}))
       ]);
+      const espnGames = dateBatches.flat();
 
       const upcoming = [];
-      (oddsGames || []).forEach(g => {
+      oddsGames.forEach(g => {
         if (new Date(g.ts).getTime() <= Date.now()) return;
 
         let best = null, bs = 0;
-        (espnGames || []).forEach(e => {
+        espnGames.forEach(e => {
           const s = (sim(g.a, e.a) + sim(g.h, e.h)) / 2;
           if (s > bs) { bs = s; best = e; }
         });
@@ -839,6 +864,7 @@ async function load(force) {
             const aConf = m[best.a.cf] || '';
             g.cf = POW.includes(hConf) ? hConf : POW.includes(aConf) ? aConf : (hConf || aConf);
           }
+          matchedCount++;
         }
         g.rec = generateRecommendation(g);
         upcoming.push(g);
@@ -855,7 +881,7 @@ async function load(force) {
   const flat = results.flat().sort((a, b) => new Date(a.ts) - new Date(b.ts));
   if (flat.length) {
     st.games = flat;
-    st.debugInfo = `${liveCount} live upcoming games synced`;
+    st.debugInfo = `${liveCount} live upcoming games synced (${matchedCount} enriched with ESPN stats)`;
   } else {
     st.games = getSampleGames();
     st.debugInfo = '0 live upcoming games in current window — displaying sample slate';
