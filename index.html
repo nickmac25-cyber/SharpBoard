@@ -10,6 +10,7 @@
   body { background: #0b0f17; color: #e5e7eb; font-family: system-ui, -apple-system, sans-serif; }
   .card { background: #121826; border: 1px solid #1f2937; border-radius: 14px; }
   .pick-box { background: linear-gradient(135deg, #102a1e 0%, #0f1f2e 100%); border: 1px solid #15803d; border-radius: 10px; }
+  .ou-box { background: linear-gradient(135deg, #24153b 0%, #101d33 100%); border: 1px solid #7e22ce; border-radius: 10px; }
   .lean-box { background: linear-gradient(135deg, #17253b 0%, #111827 100%); border: 1px solid #1d4ed8; border-radius: 10px; }
   .pass-box { background: #161d2c; border: 1px solid #283347; border-radius: 10px; }
   .tag { font-size: 11px; padding: 2px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; white-space: nowrap; }
@@ -107,6 +108,7 @@ let st = {
   propsData: {},
   propsLoading: {},
   propFilter: {},
+  propTierFilter: {},
   summaryData: {},
   view: 'board',
   games: [],
@@ -119,6 +121,7 @@ let st = {
 let chart;
 
 const dec = o => o > 0 ? 1 + o / 100 : 1 + 100 / -o;
+const impProb = o => 1 / dec(o);
 const fm = o => o == null ? '–' : o > 0 ? '+' + o : '' + o;
 const ln = n => n > 0 ? '+' + n : '' + n;
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -185,13 +188,19 @@ function getSampleGames() {
 function getSampleProps(g) {
   if (g.id === 'samp1') {
     return [
-      { market: 'player_anytime_td', player: 'Derrick Henry', line: null, side: 'Yes', bestBook: 'DK', bestOdds: -165, books: { DK: -165, FD: -175 }, confidence: 85, badge: { text: '🎯 Red-Zone Anchor', cls: 't-green' }, reason: 'Ravens offense (30.8 PPG) faces a Jets defense allowing 25.4 PPG in a 48.5 total game script.' },
-      { market: 'player_rush_yds', player: 'Derrick Henry', line: 88.5, side: 'Over', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 82, badge: { text: '🏃 Clock-Control Script', cls: 't-green' }, reason: 'Baltimore is a 6.5-point home favorite on a W3 streak, projecting heavy second-half rushing volume.' },
-      { market: 'player_anytime_td', player: 'Zay Flowers', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 145, books: { DK: 135, FD: 145 }, confidence: 71, badge: { text: '⚡ Shootout Target', cls: 't-purple' }, reason: 'Primary perimeter target in a 30.8 PPG offense with strong red-zone and big-play upside.' }
+      { market: 'player_anytime_td', player: 'Derrick Henry', line: null, side: 'Yes', bestBook: 'DK', bestOdds: -165, books: { DK: -165, FD: -175 }, confidence: 86, edgePct: 7.4, tier: 'value', badge: { text: '🎯 Red-Zone Anchor', cls: 't-green' }, reason: 'Ravens offense (30.8 PPG) faces a Jets defense allowing 25.4 PPG in a 48.5 total game script.' },
+      { market: 'player_rush_yds', player: 'Derrick Henry', line: 88.5, side: 'Over', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 82, edgePct: 6.1, tier: 'value', badge: { text: '🏃 Clock-Control Script', cls: 't-green' }, reason: 'Baltimore is a 6.5-point home favorite on a W3 streak, projecting heavy second-half rushing volume.' },
+      { market: 'player_anytime_td', player: 'Zay Flowers', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 145, books: { DK: 135, FD: 145 }, confidence: 68, edgePct: 4.5, tier: 'plus', badge: { text: '⚡ Shootout Target', cls: 't-purple' }, reason: 'Primary perimeter target in a 30.8 PPG offense with strong red-zone and big-play upside.' }
+    ];
+  }
+  if (g.id === 'samp2') {
+    return [
+      { market: 'player_rush_yds', player: 'James Cook', line: 72.5, side: 'Over', bestBook: 'FD', bestOdds: -112, books: { DK: -115, FD: -112 }, confidence: 84, edgePct: 6.8, tier: 'value', badge: { text: '🌬️ Weather Run Script', cls: 't-green' }, reason: '22 mph wind at Soldier Field favors ground volume for a 3-point road favorite.' },
+      { market: 'player_pass_yds', player: 'Caleb Williams', line: 224.5, side: 'Under', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 79, edgePct: 5.2, tier: 'value', badge: { text: '🌬️ Weather Pass Fade', cls: 't-orange' }, reason: 'Cold 29°F gusts cap deep passing efficiency against a Bills defense allowing 19.5 PPG.' }
     ];
   }
   return [
-    { market: 'player_anytime_td', player: 'Featured Star', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 125, books: { DK: 125, FD: 120 }, confidence: 72, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Add your Odds API key in Settings to pull live player props for this matchup.' }
+    { market: 'player_shots_on_goal', player: 'Jack Hughes', line: 3.5, side: 'Over', bestBook: 'DK', bestOdds: -115, books: { DK: -115, FD: -120 }, confidence: 80, edgePct: 5.5, tier: 'value', badge: { text: '⚡ High-Event 6.5', cls: 't-purple' }, reason: 'High 6.5 total and high shot volume profile for a top-line playmaker.' }
   ];
 }
 
@@ -244,7 +253,7 @@ async function oddsFetch(sp) {
 /* ---------- FETCH ESPN SCOREBOARD BY DATE, STANDINGS & SUMMARY ---------- */
 async function espnFetchByDate(sp, dateStr) {
   const c = SP[sp];
-  const key = `espn_d_v7_${sp}_${dateStr || 'now'}`;
+  const key = `espn_d_v8_${sp}_${dateStr || 'now'}`;
   return cached(key, async () => {
     const qDate = dateStr ? `&dates=${dateStr}` : '';
     const url = `https://site.api.espn.com/apis/site/v2/sports/${c.e}/scoreboard?limit=300${qDate}` + (c.g ? `&groups=${c.g}` : '');
@@ -294,8 +303,8 @@ async function espnFetchByDate(sp, dateStr) {
 
 async function standingsFetch(sp) {
   const c = SP[sp];
-  return cached('stand_v7_' + sp, async () => {
-    const res = await safeFetchJson(`https://site.api.espn.com/apis/v2/sports/${c.e}/standings`);
+  return cached('stand_v8_' + sp, async () => {
+    const res = await safeFetchJson(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/standings`);
     if (!res.ok || !res.data) return {};
     const map = {};
     const walk = node => {
@@ -325,7 +334,7 @@ async function standingsFetch(sp) {
 async function fetchGameSummary(sp, espnEventId) {
   if (!espnEventId) return null;
   const c = SP[sp];
-  return cached('sum_v7_' + espnEventId, async () => {
+  return cached('sum_v8_' + espnEventId, async () => {
     const res = await safeFetchJson(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/summary?event=${espnEventId}`);
     if (!res.ok || !res.data) return null;
     const injuries = (res.data.injuries || []).map(teamInj => {
@@ -342,7 +351,7 @@ async function fetchGameSummary(sp, espnEventId) {
   }, 18e5);
 }
 
-/* ---------- FETCH & SCORE PLAYER PROPS ---------- */
+/* ---------- FETCH & SCORE PLAYER PROPS (REFINED WITH CONSENSUS & EDGE %) ---------- */
 async function loadProps(gameId) {
   st.openProps[gameId] = !st.openProps[gameId];
   if (!st.openProps[gameId]) { render(); return; }
@@ -363,7 +372,7 @@ async function loadProps(gameId) {
   try {
     const markets = SP[g.s].propMarkets;
     const [propRes, summary] = await Promise.all([
-      cached('props_v7_' + gameId, async () => {
+      cached('props_v8_' + gameId, async () => {
         const u = `https://api.the-odds-api.com/v4/sports/${SP[g.s].k}/events/${gameId}/odds?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=${markets}&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
         const res = await safeFetchJson(u);
         if (!res.ok) throw new Error(`Props unavailable (${res.status || res.error})`);
@@ -437,8 +446,11 @@ function parseAndScoreProps(g, raw, summary) {
       return !(last.length > 3 && outListText.includes(last + ' (out'));
     })
     .map(p => {
-      const impliedPct = (1 / dec(p.bestOdds)) * 100;
-      let conf = Math.round(impliedPct * 0.90 + 10);
+      const bookPrices = Object.values(p.books);
+      const avgImplied = bookPrices.reduce((acc, pr) => acc + impProb(pr), 0) / Math.max(bookPrices.length, 1);
+      const bestImplied = impProb(p.bestOdds);
+
+      let scriptBoost = 0;
       let badge = { text: '📊 Standard Line', cls: 't-slate' };
       const reasons = [];
 
@@ -447,13 +459,13 @@ function parseAndScoreProps(g, raw, summary) {
       const lastName = p.player.split(' ').pop().toLowerCase();
 
       if (lastName.length > 2 && leaderText.includes(lastName)) {
-        conf += 9;
+        scriptBoost += 0.055;
         badge = { text: '⭐ Featured Leader', cls: 't-blue' };
         reasons.push('Primary team stat leader in this matchup');
       }
 
       if (weakDefPresent && p.side !== 'Under' && !isLongshot) {
-        conf += 5;
+        scriptBoost += 0.03;
         reasons.push(`Facing a defense allowing ${maxDefAllowed.toFixed(1)}/g`);
       }
 
@@ -466,46 +478,59 @@ function parseAndScoreProps(g, raw, summary) {
             badge = { text: '🎰 Longshot Flyer', cls: 't-slate' };
             reasons.push(`High-variance TD flyer (${fm(p.bestOdds)})`);
           } else if (highTotal) {
-            conf += 10;
+            scriptBoost += 0.06;
             badge = { text: isPlusMoney ? '⚡ Shootout TD' : '🎯 Red-Zone Anchor', cls: isPlusMoney ? 't-purple' : 't-green' };
             reasons.push(`High ${total} game total projects multiple red-zone drives`);
           }
         }
         if ((isWindy || isPrecip) && p.market === 'player_rush_yds' && p.side === 'Over') {
-          conf += 13;
+          scriptBoost += 0.075;
           badge = { text: '🌬️ Weather Run Script', cls: 't-green' };
           reasons.push(`Outdoor weather (${e.weather}) shifts play-calling to the run`);
         }
         if ((isWindy || isPrecip) && p.market === 'player_pass_yds' && p.side === 'Under') {
-          conf += 12;
+          scriptBoost += 0.07;
           badge = { text: '🌬️ Weather Pass Fade', cls: 't-orange' };
           reasons.push(`Outdoor weather (${e.weather}) limits deep passing efficiency`);
         }
         if (homeSpread != null && Math.abs(homeSpread) >= 6.5 && p.market === 'player_rush_yds' && p.side === 'Over') {
-          conf += 9;
+          scriptBoost += 0.05;
           badge = { text: '🏃 Clock-Control Script', cls: 't-green' };
           reasons.push(`Spread of ${Math.abs(homeSpread)} favors late clock-control carries`);
         }
         if (lowTotal && p.side === 'Under') {
-          conf += 8;
+          scriptBoost += 0.045;
           badge = { text: '🛡️ Low-Total Grinder', cls: 't-blue' };
           reasons.push(`Low ${total} total points to a slower game pace`);
         }
       }
 
       if (g.s === 'NHL' && total && total >= 6.5 && (p.market === 'player_goal_scorer_anytime' || p.market === 'player_points') && !isLongshot) {
-        conf += 10;
+        scriptBoost += 0.055;
         badge = { text: '⚡ High-Event 6.5', cls: 't-purple' };
         reasons.push('High 6.5 total projects elevated top-6 scoring volume');
       }
 
-      if (!reasons.length) reasons.push(`Best available line at ${p.bestBook} (${fm(p.bestOdds)})`);
-      const maxCap = isLongshot ? 38 : isPlusMoney ? 69 : 89;
-      return { ...p, confidence: clamp(conf, 15, maxCap), badge, reason: reasons.join('. ') + '.' };
-    }).sort((a, b) => b.confidence - a.confidence);
+      // Line-shopping advantage vs market average implied probability
+      const lineShopEdge = Math.max(0, avgImplied - bestImplied);
+      const modelProb = clamp(avgImplied + scriptBoost + lineShopEdge * 0.5, 0.08, 0.88);
+      const edgePct = +((modelProb - bestImplied) * 100).toFixed(1);
+      const conf = clamp(Math.round(modelProb * 100), 15, isLongshot ? 38 : isPlusMoney ? 69 : 89);
+      const tier = isLongshot ? 'longshot' : isPlusMoney ? 'plus' : 'value';
+
+      if (!reasons.length) reasons.push(`Best available line at ${p.bestBook} (${fm(p.bestOdds)}) vs. market consensus`);
+      return {
+        ...p,
+        confidence: conf,
+        edgePct,
+        tier,
+        badge,
+        reason: reasons.join('. ') + '.'
+      };
+    }).sort((a, b) => (b.edgePct - a.edgePct) || (b.confidence - a.confidence));
 }
 
-/* ---------- MATCHUP ENGINE ---------- */
+/* ---------- MATCHUP ENGINE (HIGHLIGHTS OVER / UNDER WHEN PLAY OR STRONG EDGE) ---------- */
 const AL = {
   uconn: 'connecticut', 'ole miss': 'mississippi', usc: 'southern california', pitt: 'pittsburgh',
   umass: 'massachusetts', ucf: 'central florida', smu: 'southern methodist', tcu: 'texas christian',
@@ -571,6 +596,8 @@ function generateRecommendation(g) {
     const fallback = bestLine(g.books, 'ml', 'h') || bestLine(g.books, 'ml', 'a');
     return {
       tier: 'pass',
+      isTotalPlay: false,
+      ouHighlight: null,
       confidence: 45,
       sideConf: 45,
       totalConf: 45,
@@ -628,16 +655,15 @@ function generateRecommendation(g) {
 
     const projTotal = ((aOff + hDef) / 2) + ((hOff + aDef) / 2);
     if (total && projTotal - total >= spCfg.totThresh) {
-      overEdge += 3.2;
+      overEdge += 3.4;
       totalReasons.push(`Combined scoring rates project ~${projTotal.toFixed(1)} total points against a ${total} O/U`);
       badges.push({ text: '⚡ Shootout Script', cls: 't-purple' });
     } else if (total && total - projTotal >= spCfg.totThresh) {
-      underEdge += 3.2;
+      underEdge += 3.4;
       totalReasons.push(`Defensive rates project ~${projTotal.toFixed(1)} combined under the ${total} total`);
       badges.push({ text: '🛡️ Defensive Battle', cls: 't-blue' });
     }
   } else if (aRec && hRec) {
-    // Fallback to overall win-rate comparison when PPG/PAPG aren't populated yet
     const pctDiff = hRec.pct - aRec.pct;
     if (pctDiff >= 0.22) {
       homeEdge += 2.4;
@@ -692,7 +718,7 @@ function generateRecommendation(g) {
     }
   }
   if (g.cf && homeSpread != null && Math.abs(homeSpread) <= 3.5 && total != null) {
-    underEdge += 1.5;
+    underEdge += 1.6;
     totalReasons.push(`Tight ${g.cf} matchup (${ln(homeSpread)}) favors physical, clock-draining drives`);
     badges.push({ text: '🔒 Conference Grinder', cls: 't-blue' });
   }
@@ -700,7 +726,7 @@ function generateRecommendation(g) {
   const isOutdoor = !e.indoor;
   const hasWindOrPrecip = isOutdoor && /wind|rain|snow|storm|gust/i.test(e.weather || '');
   if (hasWindOrPrecip && total != null) {
-    underEdge += 2.8;
+    underEdge += 3.0;
     totalReasons.push(`Outdoor weather (${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}) favors the Under`);
     badges.push({ text: '🌬️ Weather Edge', cls: 't-orange' });
   }
@@ -712,25 +738,37 @@ function generateRecommendation(g) {
   const sideConf = clamp(Math.round(50 + topSideEdge * 6.2 + sideDiff * 2.4), 50, 94);
   const totalConf = clamp(Math.round(50 + topTotalEdge * 7.2), 50, 94);
 
-  if (topTotalEdge >= 2.8 && topTotalEdge >= topSideEdge && total != null) {
-    const isOver = overEdge >= underEdge;
-    const b = isOver ? bestOver : bestUnder;
-    if (b) {
-      const isStrong = totalConf >= 75;
-      badges.unshift({ text: isStrong ? '🔥 Strong Matchup Play' : '👍 Solid Lean', cls: isStrong ? 't-green' : 't-blue' });
-      return {
-        tier: isStrong ? 'strong' : 'lean',
-        confidence: totalConf,
-        sideConf,
-        totalConf,
-        badges: badges.slice(0, 3),
-        pickTitle: `TAKE ${isOver ? 'OVER' : 'UNDER'} ${b.point} (${fm(b.odds)} at ${b.book})`,
-        reason: totalReasons.slice(0, 3).join('. ') + '.',
-        bet: { market: 't', side: isOver ? 'o' : 'u', label: `${g.a} @ ${g.h} ${isOver ? 'Over' : 'Under'} ${b.point}`, ...b },
-        bestOver,
-        bestUnder
-      };
-    }
+  const isOver = overEdge >= underEdge;
+  const ouCandidate = total != null ? (isOver ? bestOver : bestUnder) : null;
+  const ouHighlight = (ouCandidate && totalConf >= 65) ? {
+    dir: isOver ? 'OVER' : 'UNDER',
+    sideCode: isOver ? 'o' : 'u',
+    point: ouCandidate.point,
+    odds: ouCandidate.odds,
+    book: ouCandidate.book,
+    conf: totalConf,
+    reason: totalReasons[0] || `Model projects ${isOver ? 'higher' : 'lower'} scoring pace vs. ${ouCandidate.point}`
+  } : null;
+
+  // Primary pick is Over/Under when total edge leads (or meets threshold with no stronger side edge)
+  if (topTotalEdge >= 2.8 && topTotalEdge >= topSideEdge && ouCandidate) {
+    const isStrong = totalConf >= 75;
+    badges.unshift({ text: `🎯 ${isOver ? 'OVER' : 'UNDER'} PLAY`, cls: 't-purple' });
+    if (isStrong) badges.unshift({ text: '🔥 Strong Matchup Play', cls: 't-green' });
+    return {
+      tier: isStrong ? 'strong' : 'lean',
+      isTotalPlay: true,
+      ouHighlight,
+      confidence: totalConf,
+      sideConf,
+      totalConf,
+      badges: badges.slice(0, 3),
+      pickTitle: `TAKE ${isOver ? 'OVER' : 'UNDER'} ${ouCandidate.point} (${fm(ouCandidate.odds)} at ${ouCandidate.book})`,
+      reason: totalReasons.slice(0, 3).join('. ') + '.',
+      bet: { market: 't', side: isOver ? 'o' : 'u', label: `${g.a} @ ${g.h} ${isOver ? 'Over' : 'Under'} ${ouCandidate.point}`, ...ouCandidate },
+      bestOver,
+      bestUnder
+    };
   }
 
   if (topSideEdge >= 2.2 && sideDiff >= 1.2) {
@@ -768,6 +806,8 @@ function generateRecommendation(g) {
     if (chosen) {
       return {
         tier: isStrong ? 'strong' : 'lean',
+        isTotalPlay: false,
+        ouHighlight,
         confidence: sideConf,
         sideConf,
         totalConf,
@@ -786,6 +826,8 @@ function generateRecommendation(g) {
   const fallbackBet = bestLine(g.books, 'sp', fallbackSide) || bestLine(g.books, 'ml', fallbackSide);
   return {
     tier: 'pass',
+    isTotalPlay: false,
+    ouHighlight,
     confidence: Math.max(sideConf, totalConf),
     sideConf,
     totalConf,
@@ -824,10 +866,9 @@ async function load(force) {
   let matchedCount = 0;
   const results = await Promise.all(enabledSports.map(async sp => {
     try {
-      const oddsGames = await cached('odds_v7_' + sp, () => oddsFetch(sp));
+      const oddsGames = await cached('odds_v8_' + sp, () => oddsFetch(sp));
       if (!oddsGames || !oddsGames.length) return [];
 
-      // Collect all unique calendar dates (UTC + local) for upcoming games so future slates match ESPN
       const dateSet = new Set();
       oddsGames.forEach(g => {
         const dt = new Date(g.ts);
@@ -892,11 +933,11 @@ async function load(force) {
 /* ---------- RENDER ---------- */
 function setView(v) { st.view = v; render(); }
 
-function confBar(label, val) {
-  const color = val >= 75 ? 'bg-green-500' : val >= 64 ? 'bg-blue-500' : 'bg-slate-500';
+function confBar(label, val, highlight = false) {
+  const color = highlight ? 'bg-purple-500' : val >= 75 ? 'bg-green-500' : val >= 64 ? 'bg-blue-500' : 'bg-slate-500';
   return `
     <div class="flex items-center gap-2 text-xs">
-      <span class="text-slate-400 w-12 shrink-0">${label}</span>
+      <span class="${highlight ? 'text-purple-300 font-bold' : 'text-slate-400'} w-12 shrink-0">${label}</span>
       <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
         <div class="h-full ${color}" style="width:${val}%"></div>
       </div>
@@ -966,14 +1007,14 @@ function rBoard() {
     <div class="card p-4 mb-4 border-green-800/60 bg-[#0e1924]">
       <div class="flex items-center justify-between mb-2.5">
         <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Top Matchup Edges on the Board</h2>
-        <span class="text-xs text-slate-400">Ranked by Scoring Efficiency, Form & Game Script</span>
+        <span class="text-xs text-slate-400">Sides, Totals (O/U) & Game Script</span>
       </div>
       <div class="grid sm:grid-cols-3 gap-2.5">
         ${topPicks.map(g => `
           <div class="p-3 rounded-lg bg-[#0b0f17] border border-slate-800 flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between gap-1 mb-1.5">
-                <span class="tag ${g.rec.badges[0]?.cls || 't-green'}">${g.rec.badges[0]?.text || '🔥 Play'}</span>
+                <span class="tag ${g.rec.isTotalPlay ? 't-purple' : (g.rec.badges[0]?.cls || 't-green')}">${g.rec.isTotalPlay ? `🎯 ${g.rec.ouHighlight?.dir || 'O/U'} Play` : (g.rec.badges[0]?.text || '🔥 Play')}</span>
                 <span class="text-xs font-bold text-green-400">${g.rec.confidence}% Conf</span>
               </div>
               <div class="font-bold text-sm text-white mb-1">${g.rec.pickTitle.replace(/^PICK:\s*|^TAKE\s*/i, '')}</div>
@@ -1000,7 +1041,7 @@ function renderCard(g) {
   const showProps = !!st.openProps[g.id];
   const showTel = !!st.openTelemetry[g.id];
 
-  const boxClass = rec.tier === 'strong' ? 'pick-box' : rec.tier === 'lean' ? 'lean-box' : 'pass-box';
+  const boxClass = rec.isTotalPlay ? 'ou-box' : rec.tier === 'strong' ? 'pick-box' : rec.tier === 'lean' ? 'lean-box' : 'pass-box';
 
   const teamBlock = (name, rank, info, isHome) => {
     const stData = info?.standings || {};
@@ -1036,6 +1077,18 @@ function renderCard(g) {
       </tr>`;
   }).join('');
 
+  const ouBanner = rec.ouHighlight && !rec.isTotalPlay ? `
+    <div class="mt-2.5 p-2.5 rounded-lg bg-purple-950/35 border border-purple-700/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="tag t-purple">↕️ ${rec.ouHighlight.dir} LEAN (${rec.ouHighlight.conf}%)</span>
+        <b class="text-purple-200">${rec.ouHighlight.dir} ${rec.ouHighlight.point} (${fm(rec.ouHighlight.odds)} at ${rec.ouHighlight.book})</b>
+        <span class="text-slate-300">— ${rec.ouHighlight.reason}</span>
+      </div>
+      <button class="btn !py-1 !px-2.5 text-xs !bg-purple-700 hover:!bg-purple-600 text-white" onclick="openCustomSlip('${g.id}', '${rec.ouHighlight.dir} ${rec.ouHighlight.point}', '${rec.ouHighlight.book}', ${rec.ouHighlight.odds}, '${rec.ouHighlight.reason.replace(/'/g, "\\'")}')">
+        + Log ${rec.ouHighlight.dir}
+      </button>
+    </div>` : '';
+
   return `
     <div class="card p-4 mb-4">
       <div class="flex flex-wrap items-center gap-2 text-xs mb-3">
@@ -1058,26 +1111,27 @@ function renderCard(g) {
             <span class="font-bold text-base text-white ml-1">${rec.pickTitle}</span>
           </div>
           ${rec.bet ? `
-            <button class="btn on !py-1 !px-3 text-xs !bg-green-600 hover:!bg-green-500" onclick="openSlip('${g.id}')">
-              + Log Main Pick
+            <button class="btn on !py-1 !px-3 text-xs ${rec.isTotalPlay ? '!bg-purple-600 hover:!bg-purple-500' : '!bg-green-600 hover:!bg-green-500'}" onclick="openSlip('${g.id}')">
+              + Log ${rec.isTotalPlay ? 'O/U Pick' : 'Main Pick'}
             </button>
           ` : ''}
         </div>
 
-        <p class="text-sm text-slate-200 leading-relaxed mb-3">${rec.reason}</p>
+        <p class="text-sm text-slate-200 leading-relaxed">${rec.reason}</p>
+        ${ouBanner}
 
-        <div class="grid sm:grid-cols-2 gap-3 pt-2.5 border-t border-slate-700/60 items-center">
+        <div class="grid sm:grid-cols-2 gap-3 pt-2.5 mt-3 border-t border-slate-700/60 items-center">
           <div class="space-y-1.5">
-            ${confBar('Side', rec.sideConf)}
-            ${confBar('O/U', rec.totalConf)}
+            ${confBar('Side', rec.sideConf, false)}
+            ${confBar('O/U', rec.totalConf, rec.isTotalPlay || !!rec.ouHighlight)}
           </div>
           <div class="flex flex-wrap sm:justify-end gap-1.5">
             ${rec.bestOver ? `
-              <button class="btn !py-1 !px-2.5 text-xs border border-slate-700" onclick="openCustomSlip('${g.id}', 'Over ${rec.bestOver.point}', '${rec.bestOver.book}', ${rec.bestOver.odds}, 'Game Total Over (${rec.totalConf}% O/U Confidence)')">
+              <button class="btn !py-1 !px-2.5 text-xs ${rec.isTotalPlay && rec.ouHighlight?.dir === 'OVER' ? 'on !bg-purple-700' : 'border border-slate-700'}" onclick="openCustomSlip('${g.id}', 'Over ${rec.bestOver.point}', '${rec.bestOver.book}', ${rec.bestOver.odds}, 'Game Total Over (${rec.totalConf}% O/U Confidence)')">
                 + Over ${rec.bestOver.point} (${fm(rec.bestOver.odds)} ${rec.bestOver.book})
               </button>` : ''}
             ${rec.bestUnder ? `
-              <button class="btn !py-1 !px-2.5 text-xs border border-slate-700" onclick="openCustomSlip('${g.id}', 'Under ${rec.bestUnder.point}', '${rec.bestUnder.book}', ${rec.bestUnder.odds}, 'Game Total Under (${rec.totalConf}% O/U Confidence)')">
+              <button class="btn !py-1 !px-2.5 text-xs ${rec.isTotalPlay && rec.ouHighlight?.dir === 'UNDER' ? 'on !bg-purple-700' : 'border border-slate-700'}" onclick="openCustomSlip('${g.id}', 'Under ${rec.bestUnder.point}', '${rec.bestUnder.book}', ${rec.bestUnder.odds}, 'Game Total Under (${rec.totalConf}% O/U Confidence)')">
                 + Under ${rec.bestUnder.point} (${fm(rec.bestUnder.odds)} ${rec.bestUnder.book})
               </button>` : ''}
           </div>
@@ -1131,7 +1185,7 @@ function renderCard(g) {
 
 function renderPropsDrawer(g) {
   if (st.propsLoading[g.id]) {
-    return `<div class="mt-3 p-4 rounded-lg bg-[#0b0f17] border border-slate-800 text-xs text-slate-400 text-center">Fetching player props & checking injury reports…</div>`;
+    return `<div class="mt-3 p-4 rounded-lg bg-[#0b0f17] border border-slate-800 text-xs text-slate-400 text-center">Fetching player props, market consensus & injury reports…</div>`;
   }
   const pData = st.propsData[g.id];
   if (!pData) return '';
@@ -1149,36 +1203,53 @@ function renderPropsDrawer(g) {
       <b>🏥 Injury Report (Out / Doubtful):</b> ${injList.map(x => `${x.teamName}: ${x.keyOut.slice(0, 4).join(', ')}`).join(' · ')}
     </div>` : '';
 
+  const tierFilter = st.propTierFilter[g.id] || 'ALL';
+  const marketFilter = st.propFilter[g.id] || 'ALL';
   const availableMarkets = ['ALL', ...new Set(pData.map(p => p.market))];
-  const activeFilter = st.propFilter[g.id] || 'ALL';
-  const filtered = activeFilter === 'ALL' ? pData : pData.filter(p => p.market === activeFilter);
+
+  const filtered = pData.filter(p => {
+    const tierOk = tierFilter === 'ALL' || p.tier === tierFilter;
+    const mktOk = marketFilter === 'ALL' || p.market === marketFilter;
+    return tierOk && mktOk;
+  });
 
   return `
     <div class="mt-3 p-3 rounded-lg bg-[#0b0f17] border border-slate-800">
       ${injBanner}
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div class="flex flex-wrap gap-1">
-          ${availableMarkets.map(m => `
-            <button class="btn !py-1 !px-2 text-[11px] ${activeFilter === m ? 'on' : ''}" onclick="st.propFilter['${g.id}']='${m}';render()">
-              ${m === 'ALL' ? 'All Props' : (PROP_LABELS[m] || m)}
-            </button>
+          ${[
+            ['ALL', 'All Props'],
+            ['value', '💎 Edge / Value'],
+            ['plus', '⚡ Plus-Money'],
+            ['longshot', '🎰 Longshots']
+          ].map(([k, lbl]) => `
+            <button class="btn !py-1 !px-2 text-[11px] ${tierFilter === k ? 'on' : ''}" onclick="st.propTierFilter['${g.id}']='${k}';render()">${lbl}</button>
           `).join('')}
         </div>
-        <span class="text-[11px] text-slate-500">Ranked by Matchup & Game-Script Fit</span>
+        <span class="text-[11px] text-slate-400">Sorted by Est. Edge vs. Consensus</span>
+      </div>
+
+      <div class="flex flex-wrap gap-1 mb-2.5">
+        ${availableMarkets.map(m => `
+          <button class="btn !py-0.5 !px-2 text-[11px] ${marketFilter === m ? 'on' : ''}" onclick="st.propFilter['${g.id}']='${m}';render()">
+            ${m === 'ALL' ? 'All Markets' : (PROP_LABELS[m] || m)}
+          </button>
+        `).join('')}
       </div>
 
       <div class="space-y-2 max-h-80 overflow-y-auto pr-1">
-        ${filtered.slice(0, 20).map(p => {
+        ${filtered.length ? filtered.slice(0, 20).map(p => {
           const mLabel = PROP_LABELS[p.market] || p.market;
           const propDesc = p.line != null ? `${p.player} ${p.side} ${p.line} ${mLabel}` : `${p.player} ${mLabel}`;
-          const confColor = p.confidence >= 78 ? 'text-green-400' : p.confidence >= 68 ? 'text-blue-400' : 'text-slate-300';
+          const edgeColor = p.edgePct >= 5 ? 'text-green-400' : p.edgePct > 0 ? 'text-blue-400' : 'text-slate-400';
           return `
             <div class="p-2.5 rounded-lg bg-[#121826] border border-slate-800/90 flex flex-wrap items-center justify-between gap-2">
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
                   <span class="tag ${p.badge.cls}">${p.badge.text}</span>
                   <span class="font-bold text-sm text-white">${propDesc}</span>
-                  <span class="text-xs font-bold ${confColor}">(${p.confidence}% Fit)</span>
+                  <span class="text-xs font-bold ${edgeColor}">+${p.edgePct}% Est. Edge · ${p.confidence}% Fit</span>
                 </div>
                 <div class="text-xs text-slate-400">${p.reason}</div>
               </div>
@@ -1191,7 +1262,7 @@ function renderPropsDrawer(g) {
                 </button>
               </div>
             </div>`;
-        }).join('')}
+        }).join('') : '<div class="p-4 text-center text-xs text-slate-400">No props match this filter combination.</div>'}
       </div>
     </div>`;
 }
