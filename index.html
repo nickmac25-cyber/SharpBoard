@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GamePlan Enterprise — Multi-Source Sports Matchup & Prop Engine</title>
+<title>GamePlan — Sports Matchup & Prop Handicapper</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
@@ -33,7 +33,7 @@
   <div class="max-w-5xl mx-auto flex flex-wrap items-center gap-2">
     <div class="flex items-center gap-2 mr-2">
       <span class="text-xl">🏟️</span>
-      <h1 class="font-bold text-lg tracking-tight">GamePlan <span class="text-xs font-semibold text-blue-400">DATA PRO</span></h1>
+      <h1 class="font-bold text-lg tracking-tight">GamePlan</h1>
     </div>
     <div id="tabs" class="flex flex-wrap gap-1"></div>
     <div class="ml-auto flex items-center gap-2 text-sm">
@@ -41,8 +41,8 @@
       <span id="rem" class="tag t-slate" title="Odds API Credits Remaining"></span>
       <button class="btn" onclick="setView('board')" id="vb">Upcoming Picks</button>
       <button class="btn" onclick="setView('bets')" id="vt">My Record</button>
-      <button class="btn" onclick="load(true)" title="Refresh live feeds">⟳ Sync</button>
-      <button class="btn on" onclick="openCfg()">⚙ Data Feeds</button>
+      <button class="btn" onclick="load(true)" title="Refresh live games">⟳ Sync</button>
+      <button class="btn on" onclick="openCfg()">⚙ API Key</button>
     </div>
   </div>
   <div id="sub" class="max-w-5xl mx-auto flex flex-wrap gap-2 mt-2 items-center"></div>
@@ -63,9 +63,9 @@ const W = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch 
 
 const SP = {
   NFL:   { k: 'americanfootball_nfl', e: 'football/nfl', label: 'NFL', propMarkets: 'player_anytime_td,player_pass_yds,player_rush_yds,player_reception_yds,player_receptions', hfa: 2.0, priorGP: 5, spreadThresh: 3.0, totThresh: 3.5 },
-  NHL:   { k: 'icehockey_nhl', e: 'hockey/nhl', label: 'NHL', propMarkets: 'player_goal_scorer_anytime,player_points,player_shots_on_goal', hfa: 0.25, priorGP: 12, spreadThresh: 0.50, totThresh: 0.45 },
+  NHL:   { k: 'icehockey_nhl', e: 'hockey/nhl', label: 'NHL', propMarkets: 'player_goal_scorer_anytime,player_points,player_shots_on_goal', hfa: 0.25, priorGP: 12, spreadThresh: 0.55, totThresh: 0.50 },
   NCAAF: { k: 'americanfootball_ncaaf', e: 'football/college-football', g: 80, label: 'NCAAF', propMarkets: 'player_anytime_td,player_pass_yds,player_rush_yds,player_reception_yds', hfa: 2.8, priorGP: 4, spreadThresh: 3.8, totThresh: 4.5 },
-  MLB:   { k: 'baseball_mlb', e: 'baseball/mlb', label: 'MLB', propMarkets: 'batter_home_runs,batter_hits,batter_total_bases,pitcher_strikeouts', hfa: 0.30, priorGP: 20, spreadThresh: 0.60, totThresh: 0.65 }
+  MLB:   { k: 'baseball_mlb', e: 'baseball/mlb', label: 'MLB', propMarkets: 'batter_home_runs,batter_hits,batter_total_bases,pitcher_strikeouts', hfa: 0.30, priorGP: 20, spreadThresh: 0.65, totThresh: 0.70 }
 };
 
 const PROP_LABELS = {
@@ -90,12 +90,11 @@ const CF = {
   NCAAF: { 1:'ACC', 4:'Big 12', 5:'Big Ten', 8:'SEC', 9:'Pac-12', 12:'C-USA', 15:'MAC', 17:'MWC', 37:'Sun Belt', 151:'AAC', 18:'Ind' }
 };
 
-const savedCfg = S('gp_cfg', { key: '', cfbdKey: '', on: { NFL: 1, NHL: 1, NCAAF: 1, MLB: 1 }, unit: 25 });
+const savedCfg = S('gp_cfg', { key: '', on: { NFL: 1, NHL: 1, NCAAF: 1, MLB: 1 }, unit: 25 });
 if (savedCfg.on) {
   delete savedCfg.on.NCAAB;
   if (savedCfg.on.MLB === undefined) savedCfg.on.MLB = 1;
 }
-if (savedCfg.cfbdKey === undefined) savedCfg.cfbdKey = '';
 
 let st = {
   tab: 'All',
@@ -112,7 +111,7 @@ let st = {
   view: 'board',
   games: [],
   err: [],
-  feedStatus: {},
+  debugInfo: '',
   cfg: savedCfg,
   bets: S('gp_bets', []),
   rem: S('gp_rem', null)
@@ -124,230 +123,25 @@ const fm = o => o == null ? '–' : o > 0 ? '+' + o : '' + o;
 const ln = n => n > 0 ? '+' + n : '' + n;
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-async function cached(k, fn, ttl = 9e5) {
+async function safeFetchJson(url, timeoutMs = 8000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    return { ok: res.ok, status: res.status, headers: res.headers, data: res.ok ? await res.json() : null };
+  } catch (err) {
+    clearTimeout(timer);
+    return { ok: false, status: 0, headers: new Headers(), error: err.message || 'Network error' };
+  }
+}
+
+async function cached(k, fn, ttl = 6e5) {
   const c = S('gp_c_' + k, null);
   if (c && Date.now() - c.t < ttl) return c.d;
   const d = await fn();
-  W('gp_c_' + k, { t: Date.now(), d });
+  if (d !== null && d !== undefined) W('gp_c_' + k, { t: Date.now(), d });
   return d;
-}
-
-/* ---------- TEAM NAME NORMALIZATION ---------- */
-const AL = {
-  uconn: 'connecticut', 'ole miss': 'mississippi', usc: 'southern california', pitt: 'pittsburgh',
-  umass: 'massachusetts', ucf: 'central florida', smu: 'southern methodist', tcu: 'texas christian',
-  byu: 'brigham young', unlv: 'nevada las vegas', lsu: 'louisiana state', vcu: 'virginia commonwealth',
-  'miami fl': 'miami', 'miami (fl)': 'miami', saint: 'st', 'st.': 'st',
-  'ny jets': 'new york jets', 'ny giants': 'new york giants', 'la rams': 'los angeles rams', 'la chargers': 'los angeles chargers'
-};
-const nz = s => {
-  s = (s || '').toLowerCase().replace(/[’']/g, '').replace(/[.&]/g, m => m === '.' ? '' : ' ').replace(/[()-]/g, ' ');
-  for (const k in AL) s = s.replace(new RegExp('\\b' + k.replace(/[.()]/g, '') + '\\b', 'g'), AL[k]);
-  return s.replace(/\bstate\b/g, 'st').replace(/\bsaint\b/g, 'st').replace(/\s+/g, ' ').trim();
-};
-const sim = (a, t) => {
-  const nameB = typeof t === 'string' ? t : t.n;
-  const locB = typeof t === 'string' ? '' : (t.loc || '');
-  const A = nz(a).split(' '), B = nz(nameB).split(' ');
-  const i = A.filter(x => B.includes(x)).length;
-  const s1 = i / Math.max(A.length, B.length);
-  const L = nz(locB);
-  return Math.max(s1, L && nz(a).startsWith(L) ? .9 : 0);
-};
-
-/* ---------- ELITE DATA SOURCE 1: OFFICIAL MLB STATS API (PROBABLE PITCHERS & STATS) ---------- */
-async function mlbOfficialFetch() {
-  return cached('mlb_official_v1', async () => {
-    try {
-      const today = new Date();
-      const end = new Date(today.getTime() + 3 * 86400000);
-      const fmtDate = d => d.toISOString().slice(0, 10);
-      const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=${fmtDate(today)}&endDate=${fmtDate(end)}&hydrate=probablePitcher(note),team,linescore,weather`;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const j = await res.json();
-      const games = [];
-      (j.dates || []).forEach(dt => {
-        (dt.games || []).forEach(gm => {
-          if (gm.status?.abstractGameState !== 'Preview') return;
-          const aTeam = gm.teams?.away || {};
-          const hTeam = gm.teams?.home || {};
-          games.push({
-            awayName: aTeam.team?.name || '',
-            homeName: hTeam.team?.name || '',
-            awayRec: aTeam.leagueRecord ? `${aTeam.leagueRecord.wins}-${aTeam.leagueRecord.losses}` : '',
-            homeRec: hTeam.leagueRecord ? `${hTeam.leagueRecord.wins}-${hTeam.leagueRecord.losses}` : '',
-            awayPitcher: aTeam.probablePitcher ? {
-              id: aTeam.probablePitcher.id,
-              name: aTeam.probablePitcher.fullName,
-              note: aTeam.probablePitcher.note || ''
-            } : null,
-            homePitcher: hTeam.probablePitcher ? {
-              id: hTeam.probablePitcher.id,
-              name: hTeam.probablePitcher.fullName,
-              note: hTeam.probablePitcher.note || ''
-            } : null,
-            venue: gm.venue?.name || '',
-            weather: gm.weather ? `${gm.weather.condition || ''}, ${gm.weather.temp || ''}°F, Wind ${gm.weather.wind || ''}` : ''
-          });
-        });
-      });
-
-      // Hydrate season pitching stats for probable starters in one batch call
-      const pitcherIds = [...new Set(games.flatMap(g => [g.awayPitcher?.id, g.homePitcher?.id]).filter(Boolean))];
-      if (pitcherIds.length) {
-        const yr = new Date().getFullYear();
-        const pRes = await fetch(`https://statsapi.mlb.com/api/v1/people?personIds=${pitcherIds.join(',')}&hydrate=stats(group=[pitching],type=[season],season=${yr})`);
-        if (pRes.ok) {
-          const pj = await pRes.json();
-          const pMap = {};
-          (pj.people || []).forEach(p => {
-            const stat = p.stats?.[0]?.splits?.[0]?.stat;
-            if (stat) {
-              pMap[p.id] = {
-                era: Number(stat.era) || null,
-                whip: Number(stat.whip) || null,
-                k9: Number(stat.strikeoutsPer9Inn) || null,
-                ip: Number(stat.inningsPitched) || 0,
-                hand: p.pitchHand?.code || ''
-              };
-            }
-          });
-          games.forEach(g => {
-            if (g.awayPitcher && pMap[g.awayPitcher.id]) Object.assign(g.awayPitcher, pMap[g.awayPitcher.id]);
-            if (g.homePitcher && pMap[g.homePitcher.id]) Object.assign(g.homePitcher, pMap[g.homePitcher.id]);
-          });
-        }
-      }
-      st.feedStatus.MLB = 'MLB Stats API (Pitchers)';
-      return games;
-    } catch {
-      return null;
-    }
-  }, 9e5);
-}
-
-/* ---------- ELITE DATA SOURCE 2: OFFICIAL NHL STATS API (5v5, L10, REST DAYS) ---------- */
-async function nhlOfficialFetch() {
-  return cached('nhl_official_v1', async () => {
-    try {
-      const [standRes, schedRes] = await Promise.all([
-        fetch('https://api-web.nhle.com/v1/standings/now'),
-        fetch('https://api-web.nhle.com/v1/schedule/now')
-      ]);
-      if (!standRes.ok) return null;
-      const sj = await standRes.json();
-      const teamStats = {};
-      (sj.standings || []).forEach(t => {
-        const name = t.teamName?.default || '';
-        const abbrev = t.teamAbbrev?.default || '';
-        const gp = Number(t.gamesPlayed) || 1;
-        teamStats[nz(name)] = {
-          abbrev,
-          gp,
-          ppg: Number(t.goalFor) / gp,
-          papg: Number(t.goalAgainst) / gp,
-          goalDiffPg: Number(t.goalDifferentialPctg) || ((Number(t.goalFor) - Number(t.goalAgainst)) / gp),
-          l10: `${t.l10Wins}-${t.l10Losses}-${t.l10OtLosses}`,
-          l10PtsPct: ((t.l10Wins * 2 + t.l10OtLosses) / 20),
-          homeRec: `${t.homeWins}-${t.homeLosses}-${t.homeOtLosses}`,
-          roadRec: `${t.roadWins}-${t.roadLosses}-${t.roadOtLosses}`,
-          streak: `${t.streakCode || ''}${t.streakCount || ''}`
-        };
-      });
-
-      // Detect Back-to-Back games from official NHL schedule
-      const playedDates = {};
-      if (schedRes.ok) {
-        const scj = await schedRes.json();
-        (scj.gameWeek || []).forEach(day => {
-          (day.games || []).forEach(gm => {
-            if (gm.gameState === 'FINAL' || gm.gameState === 'OFF' || gm.gameState === 'LIVE' || gm.gameState === 'CRIT') {
-              const dt = new Date(day.date + 'T12:00:00Z').getTime();
-              [gm.awayTeam?.abbrev, gm.homeTeam?.abbrev].forEach(ab => {
-                if (ab && (!playedDates[ab] || dt > playedDates[ab])) playedDates[ab] = dt;
-              });
-            }
-          });
-        });
-      }
-
-      st.feedStatus.NHL = 'NHL Official API';
-      return { teamStats, playedDates };
-    } catch {
-      return null;
-    }
-  }, 9e5);
-}
-
-/* ---------- ELITE DATA SOURCE 3: NFLVERSE EPA/PLAY & EFFICIENCY FEED ---------- */
-async function nflverseFetch() {
-  return cached('nflverse_epa_v1', async () => {
-    try {
-      const yr = new Date().getMonth() >= 8 ? new Date().getFullYear() : new Date().getFullYear() - 1;
-      const url = `https://github.com/nflverse/nflverse-data/releases/download/team_stats/stats_team_reg_${yr}.csv`;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const csv = await res.text();
-      const lines = csv.trim().split('\n');
-      if (lines.length < 2) return null;
-      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-      const idx = name => headers.indexOf(name);
-
-      const iTeam = idx('team');
-      const iPassEpa = idx('passing_epa');
-      const iRushEpa = idx('rushing_epa');
-      const iSacks = idx('sacks_suffered');
-      if (iTeam === -1 || iPassEpa === -1) return null;
-
-      const map = {};
-      lines.slice(1).forEach(line => {
-        const cols = line.split(',').map(c => c.replace(/"/g, '').trim());
-        const tm = cols[iTeam];
-        if (!tm) return;
-        const passEpa = Number(cols[iPassEpa]) || 0;
-        const rushEpa = Number(cols[iRushEpa]) || 0;
-        map[tm] = {
-          passEpa,
-          rushEpa,
-          totalOffEpa: passEpa + rushEpa,
-          sacks: Number(cols[iSacks]) || 0
-        };
-      });
-      st.feedStatus.NFL = 'nflverse EPA + ESPN';
-      return map;
-    } catch {
-      return null;
-    }
-  }, 36e5);
-}
-
-/* ---------- ELITE DATA SOURCE 4: COLLEGEFOOTBALLDATA (CFBD SP+ & PPA) ---------- */
-async function cfbdFetch() {
-  if (!st.cfg.cfbdKey) return null;
-  return cached('cfbd_sp_v1', async () => {
-    try {
-      const yr = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
-      const res = await fetch(`https://api.collegefootballdata.com/ratings/sp?year=${yr}`, {
-        headers: { Authorization: `Bearer ${st.cfg.cfbdKey}` }
-      });
-      if (!res.ok) return null;
-      const arr = await res.json();
-      const map = {};
-      arr.forEach(t => {
-        map[nz(t.team)] = {
-          spOverall: t.rating,
-          spOff: t.offense?.rating,
-          spDef: t.defense?.rating,
-          sos: t.sos
-        };
-      });
-      st.feedStatus.NCAAF = 'CFBD SP+ Ratings';
-      return map;
-    } catch {
-      return null;
-    }
-  }, 36e5);
 }
 
 /* ---------- SAMPLE SLATE & PROPS ---------- */
@@ -359,18 +153,18 @@ function getSampleGames() {
       books: { DK: { ml: [240, -295], sp: [-6.5, -110, -110], t: [48.5, -110, -110] }, FD: { ml: [245, -300], sp: [-6.5, -108, -112], t: [48.0, -110, -110] } },
       e: {
         st: 'Sun 1:00 PM', state: 'pre', venue: 'M&T Bank Stadium', indoor: false, weather: 'Clear', temp: 46,
-        a: { short: 'Jets', rec: '3-8', split: '1-5', streak: 'L3', standings: { gp: 11, ppg: 18.2, papg: 25.4 }, epa: { passEpa: -18.4, rushEpa: -6.2, totalOffEpa: -24.6 }, leaders: ['B. Hall (840 Rush Yds)', 'G. Wilson (790 Rec Yds)'] },
-        h: { short: 'Ravens', rec: '8-3', split: '4-1', streak: 'W3', standings: { gp: 11, ppg: 30.8, papg: 21.0 }, epa: { passEpa: 64.2, rushEpa: 28.5, totalOffEpa: 92.7 }, leaders: ['L. Jackson (2,810 Pass Yds)', 'D. Henry (1,120 Rush Yds)'] }
+        a: { short: 'Jets', rec: '3-8', split: '1-5', streak: 'L3', standings: { gp: 11, ppg: 18.2, papg: 25.4 }, leaders: ['B. Hall (840 Rush Yds)', 'G. Wilson (790 Rec Yds)'] },
+        h: { short: 'Ravens', rec: '8-3', split: '4-1', streak: 'W3', standings: { gp: 11, ppg: 30.8, papg: 21.0 }, leaders: ['L. Jackson (2,810 Pass Yds)', 'D. Henry (1,120 Rush Yds)'] }
       }
     },
     {
-      id: 'samp2', s: 'MLB', a: 'New York Yankees', h: 'Boston Red Sox', ts: new Date(Date.now() + 7200000).toISOString(),
-      tm: 'Tonight 7:10 PM', sample: true,
-      books: { DK: { ml: [-135, 115], sp: [1.5, -180, 150], t: [8.5, -110, -110] }, FD: { ml: [-130, 112], sp: [1.5, -175, 146], t: [8.5, -108, -112] } },
+      id: 'samp2', s: 'NFL', a: 'Buffalo Bills', h: 'Chicago Bears', ts: new Date(Date.now() + 7200000).toISOString(),
+      tm: 'Sun 4:25 PM', sample: true,
+      books: { DK: { ml: [-155, 130], sp: [3.0, -110, -110], t: [44.5, -110, -110] }, FD: { ml: [-150, 126], sp: [3.0, -112, -108], t: [44.0, -110, -110] } },
       e: {
-        st: 'Tonight 7:10 PM', state: 'pre', venue: 'Fenway Park', indoor: false, weather: 'Clear, 68°F, Wind 12 mph out to LF', temp: 68,
-        a: { short: 'Yankees', rec: '58-40', split: '29-20', streak: 'W2', standings: { gp: 98, ppg: 5.1, papg: 3.9 }, pitcher: { name: 'G. Cole', era: 2.84, whip: 1.02, k9: 10.8, hand: 'R' }, leaders: ['A. Judge (34 HR)', 'J. Soto (98 OPS)'] },
-        h: { short: 'Red Sox', rec: '51-47', split: '26-23', streak: 'L2', standings: { gp: 98, ppg: 4.7, papg: 4.6 }, pitcher: { name: 'B. Bello', era: 4.52, whip: 1.38, k9: 7.9, hand: 'R' }, leaders: ['R. Devers (24 HR)', 'J. Duran (112 H)'] }
+        st: 'Sun 4:25 PM', state: 'pre', venue: 'Soldier Field', indoor: false, weather: 'Windy 22 mph', temp: 29,
+        a: { short: 'Bills', rec: '8-3', split: '4-2', streak: 'W2', standings: { gp: 11, ppg: 26.8, papg: 19.5 }, leaders: ['J. Allen (24 Pass TD)', 'J. Cook (760 Rush Yds)'] },
+        h: { short: 'Bears', rec: '4-7', split: '3-3', streak: 'L4', standings: { gp: 11, ppg: 19.4, papg: 22.8 }, leaders: ['C. Williams (2,240 Pass Yds)', 'D. Moore (680 Rec Yds)'] }
       }
     },
     {
@@ -379,8 +173,8 @@ function getSampleGames() {
       books: { DK: { ml: [125, -145], sp: [-1.5, -185, 155], t: [6.5, -105, -115] }, FD: { ml: [130, -150], sp: [-1.5, -180, 150], t: [6.5, -110, -110] } },
       e: {
         st: 'Tonight 7:00 PM', state: 'pre', venue: 'Lenovo Center', indoor: true,
-        a: { short: 'Devils', rec: '13-6-2', split: '8-3-0', streak: 'W3', restDays: 0, standings: { gp: 21, ppg: 3.45, papg: 2.55, l10: '7-2-1' }, leaders: ['J. Hughes (26 PTS)', 'N. Hischier (13 G)'] },
-        h: { short: 'Hurricanes', rec: '14-5-0', split: '8-2-0', streak: 'W2', restDays: 2, standings: { gp: 19, ppg: 3.65, papg: 2.45, l10: '8-2-0' }, leaders: ['M. Necas (30 PTS)', 'S. Aho (21 PTS)'] }
+        a: { short: 'Devils', rec: '13-6-2', split: '8-3-0', streak: 'W3', standings: { gp: 21, ppg: 3.45, papg: 2.55 }, leaders: ['J. Hughes (26 PTS)', 'N. Hischier (13 G)'] },
+        h: { short: 'Hurricanes', rec: '14-5-0', split: '8-2-0', streak: 'W2', standings: { gp: 19, ppg: 3.65, papg: 2.45 }, leaders: ['M. Necas (30 PTS)', 'S. Aho (21 PTS)'] }
       }
     }
   ];
@@ -389,30 +183,31 @@ function getSampleGames() {
 }
 
 function getSampleProps(g) {
-  if (g.id === 'samp2') {
+  if (g.id === 'samp1') {
     return [
-      { market: 'pitcher_strikeouts', player: 'Gerrit Cole', line: 6.5, side: 'Over', bestBook: 'DK', bestOdds: -120, books: { DK: -120, FD: -125 }, confidence: 84, badge: { text: '🔥 10.8 K/9 Ace', cls: 't-green' }, reason: 'MLB Stats API confirms G. Cole (2.84 ERA, 10.8 K/9) on the mound against a swing-and-miss lineup.' },
-      { market: 'batter_total_bases', player: 'Aaron Judge', line: 1.5, side: 'Over', bestBook: 'FD', bestOdds: -115, books: { DK: -120, FD: -115 }, confidence: 81, badge: { text: '⚾ Pitcher Mismatch', cls: 't-green' }, reason: 'Faces RHP B. Bello (4.52 ERA, 1.38 WHIP) at Fenway Park with wind blowing out.' }
+      { market: 'player_anytime_td', player: 'Derrick Henry', line: null, side: 'Yes', bestBook: 'DK', bestOdds: -165, books: { DK: -165, FD: -175 }, confidence: 85, badge: { text: '🎯 Red-Zone Anchor', cls: 't-green' }, reason: 'Ravens offense (30.8 PPG) faces a Jets defense allowing 25.4 PPG in a 48.5 total game script.' },
+      { market: 'player_rush_yds', player: 'Derrick Henry', line: 88.5, side: 'Over', bestBook: 'DK', bestOdds: -110, books: { DK: -110, FD: -115 }, confidence: 82, badge: { text: '🏃 Clock-Control Script', cls: 't-green' }, reason: 'Baltimore is a 6.5-point home favorite on a W3 streak, projecting heavy second-half rushing volume.' },
+      { market: 'player_anytime_td', player: 'Zay Flowers', line: null, side: 'Yes', bestBook: 'FD', bestOdds: 145, books: { DK: 135, FD: 145 }, confidence: 71, badge: { text: '⚡ Shootout Target', cls: 't-purple' }, reason: 'Primary perimeter target in a 30.8 PPG offense with strong red-zone and big-play upside.' }
     ];
   }
   return [
-    { market: 'player_anytime_td', player: 'Derrick Henry', line: null, side: 'Yes', bestBook: 'DK', bestOdds: -165, books: { DK: -165, FD: -175 }, confidence: 86, badge: { text: '🎯 Red-Zone Anchor', cls: 't-green' }, reason: 'Ravens offense (+92.7 nflverse EPA, 30.8 PPG) faces a Jets defense allowing 25.4 PPG.' }
+    { market: 'player_anytime_td', player: 'Featured Star', line: null, side: 'Yes', bestBook: 'DK', bestOdds: 125, books: { DK: 125, FD: 120 }, confidence: 72, badge: { text: '⭐ Team Leader', cls: 't-blue' }, reason: 'Add your Odds API key in Settings to pull live player props for this matchup.' }
   ];
 }
 
-/* ---------- FETCH ODDS (UPCOMING GAMES ONLY) ---------- */
+/* ---------- FETCH ODDS (THE ODDS API) ---------- */
 async function oddsFetch(sp) {
   const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   const u = `https://api.the-odds-api.com/v4/sports/${SP[sp].k}/odds/?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm&commenceTimeFrom=${nowIso}`;
-  const res = await fetch(u);
+  const res = await safeFetchJson(u);
   if (!res.ok) {
-    if (res.status === 401) throw new Error('Invalid Odds API Key — check Data Feeds.');
+    if (res.status === 401) throw new Error('Invalid Odds API Key — check Settings.');
     if (res.status === 429) throw new Error('Odds API rate limit or out of credits.');
-    throw new Error(`${sp}: Odds API Error ${res.status}`);
+    throw new Error(`${sp}: Odds API Error (${res.status || res.error})`);
   }
   const rm = res.headers.get('x-requests-remaining');
   if (rm != null) { st.rem = rm; W('gp_rem', rm); }
-  const j = await res.json();
+  const j = res.data || [];
   return j
     .filter(e => new Date(e.commence_time).getTime() > Date.now())
     .map(e => {
@@ -425,18 +220,18 @@ async function oddsFetch(sp) {
         tm: new Date(e.commence_time).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
         books: {}
       };
-      e.bookmakers.forEach(b => {
+      (e.bookmakers || []).forEach(b => {
         const n = BN[b.key];
         if (!n) return;
         const o = {};
-        b.markets.forEach(m => {
-          const A = m.outcomes.find(x => x.name === e.away_team);
-          const H = m.outcomes.find(x => x.name === e.home_team);
+        (b.markets || []).forEach(m => {
+          const A = (m.outcomes || []).find(x => x.name === e.away_team);
+          const H = (m.outcomes || []).find(x => x.name === e.home_team);
           if (m.key === 'h2h' && A && H) o.ml = [A.price, H.price];
           if (m.key === 'spreads' && A && H) o.sp = [H.point, A.price, H.price];
           if (m.key === 'totals') {
-            const ov = m.outcomes.find(x => x.name === 'Over');
-            const un = m.outcomes.find(x => x.name === 'Under');
+            const ov = (m.outcomes || []).find(x => x.name === 'Over');
+            const un = (m.outcomes || []).find(x => x.name === 'Under');
             if (ov && un) o.t = [ov.point, ov.price, un.price];
           }
         });
@@ -446,18 +241,19 @@ async function oddsFetch(sp) {
     });
 }
 
-/* ---------- FETCH ESPN BASELINE + INJURIES ---------- */
+/* ---------- FETCH ESPN SCOREBOARD, STANDINGS & SUMMARY ---------- */
 async function espnFetch(sp) {
   const c = SP[sp];
-  return cached('espn_' + sp, async () => {
-    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/scoreboard?limit=300` + (c.g ? `&groups=${c.g}` : ''));
-    const j = await res.json();
-    return (j.events || []).map(ev => {
-      const comp = ev.competitions[0];
-      const cp = comp.competitors;
+  return cached('espn_v6_' + sp, async () => {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${c.e}/scoreboard?limit=300` + (c.g ? `&groups=${c.g}` : '');
+    const res = await safeFetchJson(url);
+    if (!res.ok || !res.data) return [];
+    return (res.data.events || []).map(ev => {
+      const comp = ev.competitions?.[0] || {};
+      const cp = comp.competitors || [];
       const parseTeam = side => {
-        const q = cp.find(x => x.homeAway === side);
-        const t = q.team;
+        const q = cp.find(x => x.homeAway === side) || {};
+        const t = q.team || {};
         const recs = q.records || [];
         const overall = (recs.find(r => r.type === 'total') || recs[0] || {}).summary || '';
         const split = (recs.find(r => r.type === (side === 'home' ? 'home' : 'road')) || {}).summary || '';
@@ -466,9 +262,8 @@ async function espnFetch(sp) {
         );
         return {
           id: t.id,
-          abbrev: t.abbreviation || '',
-          n: t.displayName,
-          short: t.shortDisplayName || t.name,
+          n: t.displayName || '',
+          short: t.shortDisplayName || t.name || '',
           loc: t.location || '',
           logo: t.logo,
           sc: q.score,
@@ -484,8 +279,8 @@ async function espnFetch(sp) {
         h: parseTeam('home'),
         a: parseTeam('away'),
         date: ev.date,
-        st: ev.status.type.shortDetail,
-        state: ev.status.type.state,
+        st: ev.status?.type?.shortDetail || '',
+        state: ev.status?.type?.state || 'pre',
         venue: comp.venue?.fullName || '',
         indoor: comp.venue?.indoor ?? false,
         weather: ev.weather?.displayValue || '',
@@ -495,62 +290,53 @@ async function espnFetch(sp) {
   }, 6e5);
 }
 
-async function espnStandingsFetch(sp) {
+async function standingsFetch(sp) {
   const c = SP[sp];
-  return cached('stand_v5_' + sp, async () => {
-    try {
-      const res = await fetch(`https://site.api.espn.com/apis/v2/sports/${c.e}/standings`);
-      const j = await res.json();
-      const map = {};
-      const walk = node => {
-        if (node.standings?.entries) {
-          node.standings.entries.forEach(ent => {
-            const id = ent.team?.id;
-            if (!id) return;
-            const stMap = {};
-            const strMap = {};
-            (ent.stats || []).forEach(s => {
-              stMap[s.name] = Number(s.value);
-              strMap[s.name] = s.displayValue;
-            });
-            const gp = stMap.gamesPlayed || ((stMap.wins || 0) + (stMap.losses || 0) + (stMap.ties || 0) + (stMap.otLosses || 0));
-            const ppg = stMap.avgPointsFor || (gp > 0 && stMap.pointsFor ? stMap.pointsFor / gp : null);
-            const papg = stMap.avgPointsAgainst || (gp > 0 && stMap.pointsAgainst ? stMap.pointsAgainst / gp : null);
-            map[id] = { gp, ppg, papg, streak: strMap.streak || '' };
+  return cached('stand_v6_' + sp, async () => {
+    const res = await safeFetchJson(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/standings`);
+    if (!res.ok || !res.data) return {};
+    const map = {};
+    const walk = node => {
+      if (node.standings?.entries) {
+        node.standings.entries.forEach(ent => {
+          const id = ent.team?.id;
+          if (!id) return;
+          const stMap = {};
+          const strMap = {};
+          (ent.stats || []).forEach(s => {
+            stMap[s.name] = Number(s.value);
+            strMap[s.name] = s.displayValue;
           });
-        }
-        (node.children || []).forEach(walk);
-      };
-      walk(j);
-      return map;
-    } catch {
-      return {};
-    }
+          const gp = stMap.gamesPlayed || ((stMap.wins || 0) + (stMap.losses || 0) + (stMap.ties || 0) + (stMap.otLosses || 0));
+          const ppg = stMap.avgPointsFor || (gp > 0 && stMap.pointsFor ? stMap.pointsFor / gp : null);
+          const papg = stMap.avgPointsAgainst || (gp > 0 && stMap.pointsAgainst ? stMap.pointsAgainst / gp : null);
+          map[id] = { gp, ppg, papg, streak: strMap.streak || '' };
+        });
+      }
+      (node.children || []).forEach(walk);
+    };
+    walk(res.data);
+    return map;
   }, 18e5);
 }
 
 async function fetchGameSummary(sp, espnEventId) {
   if (!espnEventId) return null;
   const c = SP[sp];
-  return cached('sum_' + espnEventId, async () => {
-    try {
-      const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/summary?event=${espnEventId}`);
-      if (!res.ok) return null;
-      const j = await res.json();
-      const injuries = (j.injuries || []).map(teamInj => {
-        const outPlayers = (teamInj.injuries || [])
-          .filter(i => /out|doubtful|ir|injured reserve/i.test(i.status || ''))
-          .map(i => `${i.athlete?.shortName || 'Player'} (${i.status})`);
-        return {
-          teamId: teamInj.team?.id,
-          teamName: teamInj.team?.displayName || '',
-          keyOut: outPlayers
-        };
-      });
-      return { injuries };
-    } catch {
-      return null;
-    }
+  return cached('sum_v6_' + espnEventId, async () => {
+    const res = await safeFetchJson(`https://site.api.espn.com/apis/site/v2/sports/${c.e}/summary?event=${espnEventId}`);
+    if (!res.ok || !res.data) return null;
+    const injuries = (res.data.injuries || []).map(teamInj => {
+      const outPlayers = (teamInj.injuries || [])
+        .filter(i => /out|doubtful|ir|injured reserve/i.test(i.status || ''))
+        .map(i => `${i.athlete?.shortName || 'Player'} (${i.status})`);
+      return {
+        teamId: teamInj.team?.id,
+        teamName: teamInj.team?.displayName || '',
+        keyOut: outPlayers
+      };
+    });
+    return { injuries };
   }, 18e5);
 }
 
@@ -574,20 +360,20 @@ async function loadProps(gameId) {
 
   try {
     const markets = SP[g.s].propMarkets;
-    const [raw, summary] = await Promise.all([
-      cached('props_' + gameId, async () => {
+    const [propRes, summary] = await Promise.all([
+      cached('props_v6_' + gameId, async () => {
         const u = `https://api.the-odds-api.com/v4/sports/${SP[g.s].k}/events/${gameId}/odds?apiKey=${encodeURIComponent(st.cfg.key)}&regions=us&markets=${markets}&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
-        const res = await fetch(u);
-        if (!res.ok) throw new Error(`Props unavailable (${res.status})`);
+        const res = await safeFetchJson(u);
+        if (!res.ok) throw new Error(`Props unavailable (${res.status || res.error})`);
         const rm = res.headers.get('x-requests-remaining');
         if (rm != null) { st.rem = rm; W('gp_rem', rm); }
-        return res.json();
+        return res.data;
       }, 12e5),
       g.e?.eventId ? fetchGameSummary(g.s, g.e.eventId) : Promise.resolve(null)
     ]);
 
     if (summary) st.summaryData[gameId] = summary;
-    st.propsData[gameId] = parseAndScoreProps(g, raw, summary);
+    st.propsData[gameId] = parseAndScoreProps(g, propRes, summary);
   } catch (err) {
     st.propsData[gameId] = { error: err.message };
   } finally {
@@ -598,7 +384,7 @@ async function loadProps(gameId) {
 
 function parseAndScoreProps(g, raw, summary) {
   const map = {};
-  (raw.bookmakers || []).forEach(b => {
+  (raw?.bookmakers || []).forEach(b => {
     const bk = BN[b.key];
     if (!bk) return;
     (b.markets || []).forEach(m => {
@@ -632,6 +418,12 @@ function parseAndScoreProps(g, raw, summary) {
   const isPrecip = !e.indoor && /rain|snow|storm/i.test(e.weather || '');
   const leaderText = [...(e.a?.leaders || []), ...(e.h?.leaders || [])].join(' ').toLowerCase();
 
+  const maxDefAllowed = Math.max(Number(aSt.papg || 0), Number(hSt.papg || 0));
+  const weakDefPresent = (g.s === 'NFL' && maxDefAllowed >= 24.5) ||
+                         (g.s === 'NCAAF' && maxDefAllowed >= 31.0) ||
+                         (g.s === 'NHL' && maxDefAllowed >= 3.30) ||
+                         (g.s === 'MLB' && maxDefAllowed >= 4.85);
+
   const outListText = (summary?.injuries || [])
     .flatMap(x => x.keyOut || [])
     .join(' ')
@@ -658,25 +450,15 @@ function parseAndScoreProps(g, raw, summary) {
         reasons.push('Primary team stat leader in this matchup');
       }
 
-      // MLB Probable Pitcher Integration on Strikeout & Batter Props
-      if (g.s === 'MLB') {
-        const pitchers = [e.a?.pitcher, e.h?.pitcher].filter(Boolean);
-        const matchedPitcher = pitchers.find(pt => pt.name && pt.name.toLowerCase().includes(lastName));
-        if (matchedPitcher && p.market === 'pitcher_strikeouts' && p.side === 'Over' && matchedPitcher.k9 >= 9.5) {
-          conf += 12;
-          badge = { text: `🔥 ${matchedPitcher.k9} K/9 Ace`, cls: 't-green' };
-          reasons.push(`Confirmed starter ${matchedPitcher.name} averages ${matchedPitcher.k9} K/9 (${matchedPitcher.era} ERA)`);
-        }
-        const weakStarter = pitchers.find(pt => pt.era && pt.era >= 4.40);
-        if (weakStarter && (p.market === 'batter_total_bases' || p.market === 'batter_hits') && p.side === 'Over') {
-          conf += 8;
-          badge = { text: '⚾ Pitcher Mismatch', cls: 't-green' };
-          reasons.push(`Opposing starter ${weakStarter.name} carries a ${weakStarter.era} ERA / ${weakStarter.whip} WHIP`);
-        }
+      if (weakDefPresent && p.side !== 'Under' && !isLongshot) {
+        conf += 5;
+        reasons.push(`Facing a defense allowing ${maxDefAllowed.toFixed(1)}/g`);
       }
 
       if (g.s === 'NFL' || g.s === 'NCAAF') {
         const highTotal = total && total >= (g.s === 'NFL' ? 47.5 : 56.5);
+        const lowTotal = total && total <= (g.s === 'NFL' ? 40.5 : 46.5);
+
         if (p.market === 'player_anytime_td') {
           if (isLongshot) {
             badge = { text: '🎰 Longshot Flyer', cls: 't-slate' };
@@ -690,17 +472,22 @@ function parseAndScoreProps(g, raw, summary) {
         if ((isWindy || isPrecip) && p.market === 'player_rush_yds' && p.side === 'Over') {
           conf += 13;
           badge = { text: '🌬️ Weather Run Script', cls: 't-green' };
-          reasons.push(`Outdoor weather (${e.weather}) shifts play-calling to the ground`);
+          reasons.push(`Outdoor weather (${e.weather}) shifts play-calling to the run`);
         }
         if ((isWindy || isPrecip) && p.market === 'player_pass_yds' && p.side === 'Under') {
           conf += 12;
           badge = { text: '🌬️ Weather Pass Fade', cls: 't-orange' };
-          reasons.push(`Outdoor weather (${e.weather}) limits passing efficiency`);
+          reasons.push(`Outdoor weather (${e.weather}) limits deep passing efficiency`);
         }
         if (homeSpread != null && Math.abs(homeSpread) >= 6.5 && p.market === 'player_rush_yds' && p.side === 'Over') {
           conf += 9;
           badge = { text: '🏃 Clock-Control Script', cls: 't-green' };
           reasons.push(`Spread of ${Math.abs(homeSpread)} favors late clock-control carries`);
+        }
+        if (lowTotal && p.side === 'Under') {
+          conf += 8;
+          badge = { text: '🛡️ Low-Total Grinder', cls: 't-blue' };
+          reasons.push(`Low ${total} total points to a slower game pace`);
         }
       }
 
@@ -715,6 +502,26 @@ function parseAndScoreProps(g, raw, summary) {
       return { ...p, confidence: clamp(conf, 15, maxCap), badge, reason: reasons.join('. ') + '.' };
     }).sort((a, b) => b.confidence - a.confidence);
 }
+
+/* ---------- MATCHUP ENGINE ---------- */
+const AL = {
+  uconn: 'connecticut', 'ole miss': 'mississippi', usc: 'southern california', pitt: 'pittsburgh',
+  umass: 'massachusetts', ucf: 'central florida', smu: 'southern methodist', tcu: 'texas christian',
+  byu: 'brigham young', unlv: 'nevada las vegas', lsu: 'louisiana state', vcu: 'virginia commonwealth',
+  'miami fl': 'miami', 'miami (fl)': 'miami', saint: 'st', 'st.': 'st'
+};
+const nz = s => {
+  s = (s || '').toLowerCase().replace(/[’']/g, '').replace(/[.&]/g, m => m === '.' ? '' : ' ').replace(/[()-]/g, ' ');
+  for (const k in AL) s = s.replace(new RegExp('\\b' + k.replace(/[.()]/g, '') + '\\b', 'g'), AL[k]);
+  return s.replace(/\bstate\b/g, 'st').replace(/\bsaint\b/g, 'st').replace(/\s+/g, ' ').trim();
+};
+const sim = (a, t) => {
+  const A = nz(a).split(' '), B = nz(t.n).split(' ');
+  const i = A.filter(x => B.includes(x)).length;
+  const s1 = i / Math.max(A.length, B.length);
+  const L = nz(t.loc);
+  return Math.max(s1, L && nz(a).startsWith(L) ? .9 : 0);
+};
 
 function parseRec(r) {
   if (!r) return null;
@@ -749,7 +556,6 @@ function bestLine(books, market, side) {
   return best;
 }
 
-/* ---------- MULTI-SOURCE HANDICAPPING ENGINE ---------- */
 function generateRecommendation(g) {
   const e = g.e;
   const spCfg = SP[g.s];
@@ -760,14 +566,14 @@ function generateRecommendation(g) {
   const bestUnder = bestLine(g.books, 't', 'u');
 
   if (!e) {
-    const fallback = bestLine(g.books, 'ml', 'h');
+    const fallback = bestLine(g.books, 'ml', 'h') || bestLine(g.books, 'ml', 'a');
     return {
       tier: 'pass',
       confidence: 45,
       sideConf: 45,
       totalConf: 45,
       badges: [{ text: '⏳ Future Slate', cls: 't-slate' }],
-      pickTitle: 'Upcoming Game — Matchup Data Pending',
+      pickTitle: 'Upcoming Game — Matchup Stats Pending',
       reason: 'Sportsbook lines are posted, but team efficiency stats have not synced for this future date yet.',
       bet: fallback ? { market: 'ml', side: 'h', label: `${g.h} ML`, ...fallback } : null,
       bestOver,
@@ -793,7 +599,6 @@ function generateRecommendation(g) {
   const totalReasons = [];
   const badges = [];
 
-  // 1. Sample-Stabilized Scoring Efficiency + Advanced League Telemetry
   if (aSt.ppg && hSt.ppg && aSt.papg && hSt.papg) {
     const aGP = aSt.gp || aRec?.gp || spCfg.priorGP;
     const hGP = hSt.gp || hRec?.gp || spCfg.priorGP;
@@ -805,86 +610,32 @@ function generateRecommendation(g) {
     const hOff = stab(Number(hSt.ppg), hGP);
     const hDef = stab(Number(hSt.papg), hGP);
 
-    let projHomeMargin = ((hOff - hDef) - (aOff - aDef)) + spCfg.hfa;
-    let projTotal = ((aOff + hDef) / 2) + ((hOff + aDef) / 2);
-
-    // NFL: Layer in nflverse EPA/play
-    if (g.s === 'NFL' && e.a.epa && e.h.epa) {
-      const epaDiffPerGame = (e.h.epa.totalOffEpa - e.a.epa.totalOffEpa) / Math.max(hGP, 1);
-      projHomeMargin += epaDiffPerGame * 0.35;
-      if (epaDiffPerGame >= 3.5) homeReasons.push(`${e.h.short} holds a clear nflverse EPA/game efficiency edge (+${epaDiffPerGame.toFixed(1)} EPA/g)`);
-      if (epaDiffPerGame <= -3.5) awayReasons.push(`${e.a.short} holds a clear nflverse EPA/game efficiency edge (+${Math.abs(epaDiffPerGame).toFixed(1)} EPA/g)`);
-    }
-
-    // NCAAF: Layer in CFBD SP+ Ratings
-    if (g.s === 'NCAAF' && e.a.sp && e.h.sp && e.a.sp.spOverall != null && e.h.sp.spOverall != null) {
-      const spMargin = (e.h.sp.spOverall - e.a.sp.spOverall) + spCfg.hfa;
-      projHomeMargin = (projHomeMargin + spMargin) / 2;
-      if (spMargin - (-homeSpread) >= 4.0) homeReasons.push(`CFBD SP+ ratings project ${e.h.short} by ${spMargin.toFixed(1)} vs. ${ln(homeSpread)}`);
-      if ((-homeSpread) - spMargin >= 4.0) awayReasons.push(`CFBD SP+ ratings project ${e.a.short} outperforming the ${ln(-homeSpread)} spread`);
-    }
-
-    // MLB: Layer in Official MLB Stats API Probable Starting Pitchers
-    if (g.s === 'MLB' && e.a.pitcher?.era && e.h.pitcher?.era) {
-      const eraDiff = e.a.pitcher.era - e.h.pitcher.era; // positive favors home pitcher
-      projHomeMargin += eraDiff * 0.45;
-      if (eraDiff >= 1.1) {
-        homeEdge += 2.2;
-        homeReasons.push(`Starting pitching edge: ${e.h.pitcher.name} (${e.h.pitcher.era.toFixed(2)} ERA) vs. ${e.a.pitcher.name} (${e.a.pitcher.era.toFixed(2)} ERA)`);
-        badges.push({ text: '⚾ Ace Advantage', cls: 't-green' });
-      } else if (eraDiff <= -1.1) {
-        awayEdge += 2.2;
-        awayReasons.push(`Starting pitching edge: ${e.a.pitcher.name} (${e.a.pitcher.era.toFixed(2)} ERA) vs. ${e.h.pitcher.name} (${e.h.pitcher.era.toFixed(2)} ERA)`);
-        badges.push({ text: '⚾ Ace Advantage', cls: 't-green' });
-      }
-
-      const avgStarterEra = (e.a.pitcher.era + e.h.pitcher.era) / 2;
-      if (avgStarterEra <= 3.15 && total != null) {
-        underEdge += 2.4;
-        totalReasons.push(`Pitchers' duel: ${e.a.pitcher.name} (${e.a.pitcher.era.toFixed(2)} ERA) vs. ${e.h.pitcher.name} (${e.h.pitcher.era.toFixed(2)} ERA)`);
-        badges.push({ text: '🔥 Pitchers\' Duel', cls: 't-blue' });
-      } else if (avgStarterEra >= 4.75 && total != null) {
-        overEdge += 2.2;
-        totalReasons.push(`Vulnerable starters (${e.a.pitcher.era.toFixed(2)} & ${e.h.pitcher.era.toFixed(2)} ERA) project early runs`);
-      }
-    }
-
+    const aNet = aOff - aDef;
+    const hNet = hOff - hDef;
+    const projHomeMargin = (hNet - aNet) + spCfg.hfa;
     const marketHomeMargin = homeSpread != null ? -homeSpread : 0;
     const spreadEdge = projHomeMargin - marketHomeMargin;
 
     if (homeSpread != null && spreadEdge >= spCfg.spreadThresh) {
-      homeEdge += 3.0;
-      homeReasons.unshift(`${e.h.short}'s efficiency profile projects ${e.h.short} by ${projHomeMargin.toFixed(1)} vs. the ${ln(homeSpread)} line`);
+      homeEdge += 3.2;
+      homeReasons.push(`${e.h.short}'s stabilized scoring margin (${hNet >= 0 ? '+' : ''}${hNet.toFixed(1)}/g) projects ${e.h.short} by ${projHomeMargin.toFixed(1)} vs. the ${ln(homeSpread)} line`);
     } else if (homeSpread != null && spreadEdge <= -spCfg.spreadThresh) {
-      awayEdge += 3.0;
-      awayReasons.unshift(`${e.a.short}'s efficiency profile outpaces the ${ln(-homeSpread)} number`);
+      awayEdge += 3.2;
+      awayReasons.push(`${e.a.short}'s stabilized scoring differential (${aNet >= 0 ? '+' : ''}${aNet.toFixed(1)}/g) outpaces the ${ln(-homeSpread)} number`);
     }
 
+    const projTotal = ((aOff + hDef) / 2) + ((hOff + aDef) / 2);
     if (total && projTotal - total >= spCfg.totThresh) {
-      overEdge += 3.0;
-      totalReasons.unshift(`Combined scoring rates project ~${projTotal.toFixed(1)} total against a ${total} O/U`);
+      overEdge += 3.2;
+      totalReasons.push(`Combined scoring rates project ~${projTotal.toFixed(1)} total points against a ${total} O/U`);
       badges.push({ text: '⚡ Shootout Script', cls: 't-purple' });
     } else if (total && total - projTotal >= spCfg.totThresh) {
-      underEdge += 3.0;
-      totalReasons.unshift(`Defensive rates project ~${projTotal.toFixed(1)} combined under the ${total} total`);
+      underEdge += 3.2;
+      totalReasons.push(`Defensive rates project ~${projTotal.toFixed(1)} combined under the ${total} total`);
       badges.push({ text: '🛡️ Defensive Battle', cls: 't-blue' });
     }
   }
 
-  // 2. Rest Days & Back-to-Back Fatigue (NHL Official Schedule)
-  if (g.s === 'NHL') {
-    if (e.a.restDays === 0 && (e.h.restDays ?? 1) >= 1) {
-      homeEdge += 2.2;
-      homeReasons.push(`Rest advantage: ${e.a.short} playing on a road back-to-back (0 days rest) vs. rested ${e.h.short}`);
-      badges.push({ text: '🔋 Rest Edge vs B2B', cls: 't-orange' });
-    } else if (e.h.restDays === 0 && (e.a.restDays ?? 1) >= 1) {
-      awayEdge += 1.8;
-      awayReasons.push(`Rest advantage: ${e.h.short} playing on 0 days rest (back-to-back)`);
-      badges.push({ text: '🔋 Fading B2B', cls: 't-orange' });
-    }
-  }
-
-  // 3. Current Form, L10 & Streaks
   const parseStreak = s => {
     const m = /^([WL])(\d+)$/i.exec(s);
     return m ? { type: m[1].toUpperCase(), len: Number(m[2]) } : null;
@@ -893,39 +644,51 @@ function generateRecommendation(g) {
   const hStr = parseStreak(hStreak);
   if (hStr && hStr.type === 'W' && hStr.len >= 3) {
     homeEdge += 1.4;
-    homeReasons.push(`${e.h.short} enters hot on a ${hStreak} streak${hSt.l10 ? ` (${hSt.l10} L10)` : ''}`);
+    homeReasons.push(`${e.h.short} enters hot on a ${hStreak} streak`);
   }
   if (aStr && aStr.type === 'W' && aStr.len >= 3) {
     awayEdge += 1.4;
-    awayReasons.push(`${e.a.short} carries momentum on a ${aStreak} streak${aSt.l10 ? ` (${aSt.l10} L10)` : ''}`);
+    awayReasons.push(`${e.a.short} brings momentum on a ${aStreak} streak`);
   }
   if (hStr && hStr.type === 'L' && hStr.len >= 3) {
     awayEdge += 1.2;
-    awayReasons.push(`fading ${e.h.short} amid a ${hStreak} skid`);
+    awayReasons.push(`fading ${e.h.short} during a ${hStreak} skid`);
   }
   if (aStr && aStr.type === 'L' && aStr.len >= 3) {
     homeEdge += 1.2;
     homeReasons.push(`fading ${e.a.short} amid a ${aStreak} slump`);
   }
 
-  // 4. Venue Dominance & Road Vulnerability
   if (hHome && hHome.gp >= 4 && hHome.pct >= 0.72) {
-    homeEdge += 1.6;
-    homeReasons.push(`${e.h.short} dominates at home (${e.h.split})`);
+    homeEdge += 1.7;
+    homeReasons.push(`${e.h.short} protects home turf (${e.h.split})`);
   }
   if (aRoad && aRoad.gp >= 4 && aRoad.pct <= 0.30) {
-    homeEdge += 1.6;
-    homeReasons.push(`${e.a.short} struggles on the road (${e.a.split})`);
+    homeEdge += 1.7;
+    homeReasons.push(`${e.a.short} struggles away from home (${e.a.split})`);
   } else if (aRoad && aRoad.gp >= 4 && aRoad.pct >= 0.68) {
-    awayEdge += 1.6;
-    awayReasons.push(`${e.a.short} excels away from home (${e.a.split})`);
+    awayEdge += 1.7;
+    awayReasons.push(`${e.a.short} travels well (${e.a.split})`);
   }
 
-  // 5. Weather Impact
+  if (g.s === 'NCAAF' && g.rk) {
+    const [rkA, rkH] = g.rk;
+    if (rkA && !rkH && homeSpread != null && homeSpread > 0 && homeSpread <= 6.5) {
+      homeEdge += 2.2;
+      homeReasons.push(`Ranked road trap spot: #${rkA} ${e.a.short} laying under a TD on the road`);
+      badges.push({ text: '🪤 Ranked Trap', cls: 't-orange' });
+    }
+  }
+  if (g.cf && homeSpread != null && Math.abs(homeSpread) <= 3.5 && total != null) {
+    underEdge += 1.5;
+    totalReasons.push(`Tight ${g.cf} matchup (${ln(homeSpread)}) favors physical, clock-draining drives`);
+    badges.push({ text: '🔒 Conference Grinder', cls: 't-blue' });
+  }
+
   const isOutdoor = !e.indoor;
   const hasWindOrPrecip = isOutdoor && /wind|rain|snow|storm|gust/i.test(e.weather || '');
   if (hasWindOrPrecip && total != null) {
-    underEdge += 2.6;
+    underEdge += 2.8;
     totalReasons.push(`Outdoor weather (${[e.weather, e.temp ? e.temp + '°F' : ''].filter(Boolean).join(', ')}) favors the Under`);
     badges.push({ text: '🌬️ Weather Edge', cls: 't-orange' });
   }
@@ -934,8 +697,8 @@ function generateRecommendation(g) {
   const topSideEdge = Math.max(homeEdge, awayEdge);
   const topTotalEdge = Math.max(overEdge, underEdge);
 
-  const sideConf = clamp(Math.round(50 + topSideEdge * 6.0 + sideDiff * 2.3), 50, 94);
-  const totalConf = clamp(Math.round(50 + topTotalEdge * 7.0), 50, 94);
+  const sideConf = clamp(Math.round(50 + topSideEdge * 6.2 + sideDiff * 2.4), 50, 94);
+  const totalConf = clamp(Math.round(50 + topTotalEdge * 7.2), 50, 94);
 
   if (topTotalEdge >= 2.8 && topTotalEdge >= topSideEdge && total != null) {
     const isOver = overEdge >= underEdge;
@@ -971,7 +734,7 @@ function generateRecommendation(g) {
     let chosen = spLine;
     let pickText = spLine ? `${team.short} ${ln(spLine.point)} (${fm(spLine.odds)} at ${spLine.book})` : '';
 
-    if ((g.s === 'NHL' || g.s === 'MLB') && mlLine && mlLine.odds >= -225) {
+    if ((g.s === 'NHL' || g.s === 'MLB') && mlLine && mlLine.odds >= -220) {
       chosen = mlLine;
       pickText = `${team.short} Moneyline (${fm(mlLine.odds)} at ${mlLine.book})`;
       badges.unshift({ text: '🎯 Straight-Up Edge', cls: 't-green' });
@@ -1016,110 +779,60 @@ function generateRecommendation(g) {
     totalConf,
     badges: [{ text: '⚖️ Even Matchup / Pass', cls: 't-slate' }],
     pickTitle: 'Evenly Matched — No Clear Side Edge',
-    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly across efficiency, rest, and form. Check Player Props or pass.`,
+    reason: `${e.a.short} (${e.a.rec || 'N/A'}) and ${e.h.short} (${e.h.rec || 'N/A'}) grade out evenly on scoring efficiency and form. Check Player Props or pass.`,
     bet: fallbackBet ? { market: fallbackBet.point != null ? 'sp' : 'ml', side: fallbackSide, label: `${leanHome ? g.h : g.a} ${fallbackBet.point != null ? ln(fallbackBet.point) : 'ML'}`, ...fallbackBet } : null,
     bestOver,
     bestUnder
   };
 }
 
-/* ---------- MULTI-SOURCE PARALLEL LOAD PIPELINE ---------- */
+/* ---------- PARALLEL LOAD PIPELINE WITH SAFE FALLBACKS ---------- */
 async function load(force) {
   if (force) Object.keys(localStorage).filter(k => k.startsWith('gp_c_')).forEach(k => localStorage.removeItem(k));
   st.err = [];
-  st.feedStatus = {};
-  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Syncing Official NHL/MLB APIs, nflverse EPA, CFBD ratings, and sportsbook boards…</div>`;
+  st.debugInfo = '';
+  $('#main').innerHTML = `<div class="card p-10 text-center text-slate-400">Syncing sportsbook lines, ESPN team efficiency, records, and streaks…</div>`;
 
   if (!st.cfg.key) {
-    st.feedStatus = { NFL: 'nflverse + ESPN', MLB: 'MLB Stats API', NHL: 'NHL Official API', NCAAF: 'CFBD / ESPN' };
     st.games = getSampleGames();
+    st.debugInfo = 'Sample Slate Active (No API Key configured)';
     render();
     return;
   }
 
   const enabledSports = Object.keys(SP).filter(sp => st.cfg.on[sp]);
-  const [nflEpaMap, nhlOfficial, mlbOfficial, cfbdMap] = await Promise.all([
-    st.cfg.on.NFL ? nflverseFetch() : null,
-    st.cfg.on.NHL ? nhlOfficialFetch() : null,
-    st.cfg.on.MLB ? mlbOfficialFetch() : null,
-    st.cfg.on.NCAAF ? cfbdFetch() : null
-  ]);
+  if (!enabledSports.length) {
+    st.games = getSampleGames();
+    st.err.push('All sports are unchecked in Settings — showing sample matchups.');
+    render();
+    return;
+  }
 
+  let liveCount = 0;
   const results = await Promise.all(enabledSports.map(async sp => {
     try {
       const [oddsGames, espnGames, standingsMap] = await Promise.all([
-        cached('odds_v5_' + sp, () => oddsFetch(sp)),
+        cached('odds_v6_' + sp, () => oddsFetch(sp)),
         espnFetch(sp).catch(() => []),
-        espnStandingsFetch(sp).catch(() => ({}))
+        standingsFetch(sp).catch(() => ({}))
       ]);
-      if (!st.feedStatus[sp]) st.feedStatus[sp] = 'ESPN + Odds API';
 
       const upcoming = [];
-      oddsGames.forEach(g => {
+      (oddsGames || []).forEach(g => {
         if (new Date(g.ts).getTime() <= Date.now()) return;
 
         let best = null, bs = 0;
-        espnGames.forEach(e => {
+        (espnGames || []).forEach(e => {
           const s = (sim(g.a, e.a) + sim(g.h, e.h)) / 2;
           if (s > bs) { bs = s; best = e; }
         });
 
-        if (best && bs >= 0.5) {
+        if (best && bs >= 0.45) {
           if (best.state && best.state !== 'pre') return;
-
           g.e = best;
-          g.e.a.standings = { ...(standingsMap[best.a.id] || {}) };
-          g.e.h.standings = { ...(standingsMap[best.h.id] || {}) };
+          g.e.a.standings = standingsMap[best.a.id] || {};
+          g.e.h.standings = standingsMap[best.h.id] || {};
           g.rk = [best.a.rk, best.h.rk];
-
-          // Enrich NFL with nflverse EPA
-          if (sp === 'NFL' && nflEpaMap) {
-            if (nflEpaMap[best.a.abbrev]) g.e.a.epa = nflEpaMap[best.a.abbrev];
-            if (nflEpaMap[best.h.abbrev]) g.e.h.epa = nflEpaMap[best.h.abbrev];
-          }
-
-          // Enrich NCAAF with CFBD SP+
-          if (sp === 'NCAAF' && cfbdMap) {
-            if (cfbdMap[nz(best.a.loc)]) g.e.a.sp = cfbdMap[nz(best.a.loc)];
-            if (cfbdMap[nz(best.h.loc)]) g.e.h.sp = cfbdMap[nz(best.h.loc)];
-          }
-
-          // Enrich NHL with Official NHL API stats & rest days
-          if (sp === 'NHL' && nhlOfficial) {
-            const aNhl = nhlOfficial.teamStats[nz(g.a)];
-            const hNhl = nhlOfficial.teamStats[nz(g.h)];
-            if (aNhl) {
-              Object.assign(g.e.a.standings, aNhl);
-              g.e.a.streak = aNhl.streak;
-              g.e.a.split = aNhl.roadRec;
-              const lastPlayed = nhlOfficial.playedDates[aNhl.abbrev];
-              if (lastPlayed) {
-                const diffDays = Math.floor((new Date(g.ts).getTime() - lastPlayed) / 86400000);
-                g.e.a.restDays = Math.max(0, diffDays);
-              }
-            }
-            if (hNhl) {
-              Object.assign(g.e.h.standings, hNhl);
-              g.e.h.streak = hNhl.streak;
-              g.e.h.split = hNhl.homeRec;
-              const lastPlayed = nhlOfficial.playedDates[hNhl.abbrev];
-              if (lastPlayed) {
-                const diffDays = Math.floor((new Date(g.ts).getTime() - lastPlayed) / 86400000);
-                g.e.h.restDays = Math.max(0, diffDays);
-              }
-            }
-          }
-
-          // Enrich MLB with Official MLB Stats API Probable Starting Pitchers
-          if (sp === 'MLB' && mlbOfficial) {
-            const mGame = mlbOfficial.find(m => sim(g.a, m.awayName) >= 0.7 && sim(g.h, m.homeName) >= 0.7);
-            if (mGame) {
-              if (mGame.awayPitcher) g.e.a.pitcher = mGame.awayPitcher;
-              if (mGame.homePitcher) g.e.h.pitcher = mGame.homePitcher;
-              if (mGame.weather) g.e.weather = mGame.weather;
-            }
-          }
-
           const m = CF[sp];
           if (m) {
             const hConf = m[best.h.cf] || '';
@@ -1130,6 +843,8 @@ async function load(force) {
         g.rec = generateRecommendation(g);
         upcoming.push(g);
       });
+
+      liveCount += upcoming.length;
       return upcoming;
     } catch (e) {
       st.err.push(e.message);
@@ -1137,7 +852,14 @@ async function load(force) {
     }
   }));
 
-  st.games = results.flat().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const flat = results.flat().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  if (flat.length) {
+    st.games = flat;
+    st.debugInfo = `${liveCount} live upcoming games synced`;
+  } else {
+    st.games = getSampleGames();
+    st.debugInfo = '0 live upcoming games in current window — displaying sample slate';
+  }
   render();
 }
 
@@ -1158,7 +880,7 @@ function confBar(label, val) {
 
 function render() {
   const hasKey = !!st.cfg.key;
-  $('#mode').textContent = hasKey ? 'MULTI-SOURCE LIVE' : 'SAMPLE PREVIEW';
+  $('#mode').textContent = hasKey ? 'LIVE DATA' : 'SAMPLE PREVIEW';
   $('#mode').className = `tag ${hasKey ? 't-green' : 't-yellow'}`;
   $('#rem').textContent = hasKey ? `Credits: ${st.rem ?? '—'}` : 'Paste API Key for Live';
 
@@ -1184,9 +906,7 @@ function render() {
           <input type="checkbox" class="hidden" ${st.power ? 'checked' : ''} onchange="st.power=this.checked;render()">Power Conferences
         </label>
       ` : ''}
-      <div class="ml-auto flex flex-wrap gap-1.5 text-[11px] text-slate-400">
-        ${Object.entries(st.feedStatus).map(([k, v]) => `<span class="tag t-slate">${k}: ${v}</span>`).join('')}
-      </div>
+      ${st.debugInfo ? `<span class="ml-auto text-xs text-slate-500">${st.debugInfo}</span>` : ''}
     `;
   } else {
     $('#sub').innerHTML = '';
@@ -1211,16 +931,16 @@ function rBoard() {
   const banner = !st.cfg.key ? `
     <div class="card p-3.5 mb-4 border-yellow-700/60 bg-yellow-950/20 flex flex-wrap items-center justify-between gap-2">
       <div class="text-sm text-yellow-200">
-        <b>Viewing Sample Matchups:</b> Click <b>⚙ Data Feeds</b> to paste your Odds API key (plus optional free CFBD key) to pull live games, pitchers, EPA, and props.
+        <b>Sample Matchups Loaded:</b> Click <b>⚙ API Key</b> in the top right to paste your Odds API key for live games, lines, and player props.
       </div>
-      <button class="btn on !py-1.5 text-xs" onclick="openCfg()">Configure Feeds</button>
+      <button class="btn on !py-1.5 text-xs" onclick="openCfg()">Paste API Key</button>
     </div>` : '';
 
   const topSummary = topPicks.length ? `
     <div class="card p-4 mb-4 border-green-800/60 bg-[#0e1924]">
       <div class="flex items-center justify-between mb-2.5">
         <h2 class="font-bold text-sm uppercase tracking-wider text-green-400">🎯 Top Matchup Edges on the Board</h2>
-        <span class="text-xs text-slate-400">Powered by Official League APIs, Pitcher Matchups & Efficiency</span>
+        <span class="text-xs text-slate-400">Ranked by Scoring Efficiency, Form & Game Script</span>
       </div>
       <div class="grid sm:grid-cols-3 gap-2.5">
         ${topPicks.map(g => `
@@ -1259,7 +979,6 @@ function renderCard(g) {
   const teamBlock = (name, rank, info, isHome) => {
     const stData = info?.standings || {};
     const streak = info?.streak || stData.streak || '';
-    const pitcher = info?.pitcher;
     return `
       <div class="p-3 rounded-lg bg-[#0b0f17] border border-slate-800/80">
         <div class="flex items-center justify-between mb-1.5">
@@ -1268,10 +987,7 @@ function renderCard(g) {
             ${rank ? `<span class="tag t-yellow shrink-0">#${rank}</span>` : ''}
             <span class="font-bold text-base truncate">${name}</span>
           </div>
-          <div class="flex items-center gap-1.5">
-            ${info?.restDays === 0 ? `<span class="tag t-orange">B2B (0d Rest)</span>` : ''}
-            <span class="text-[11px] uppercase tracking-wider text-slate-500">${isHome ? 'HOME' : 'AWAY'}</span>
-          </div>
+          <span class="text-[11px] uppercase tracking-wider text-slate-500">${isHome ? 'HOME' : 'AWAY'}</span>
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
           <span>Rec: <b class="text-slate-200">${info?.rec || '—'}</b></span>
@@ -1280,18 +996,6 @@ function renderCard(g) {
           ${stData.ppg ? `<span>Off: <b class="text-slate-200">${Number(stData.ppg).toFixed(1)}/g</b></span>` : ''}
           ${stData.papg ? `<span>Def: <b class="text-slate-200">${Number(stData.papg).toFixed(1)}/g</b></span>` : ''}
         </div>
-        ${pitcher ? `
-          <div class="mt-1.5 pt-1.5 border-t border-slate-800/80 text-xs text-blue-300">
-            ⚾ Probable SP: <b>${pitcher.name}</b> ${pitcher.hand ? `(${pitcher.hand}HP)` : ''} · ${pitcher.era != null ? `${pitcher.era.toFixed(2)} ERA, ${pitcher.whip?.toFixed(2)} WHIP, ${pitcher.k9} K/9` : 'Stats Pending'}
-          </div>` : ''}
-        ${info?.epa ? `
-          <div class="mt-1.5 pt-1.5 border-t border-slate-800/80 text-xs text-purple-300">
-            📊 nflverse EPA: <b>${info.epa.totalOffEpa >= 0 ? '+' : ''}${info.epa.totalOffEpa.toFixed(1)} Total</b> (Pass ${info.epa.passEpa >= 0 ? '+' : ''}${info.epa.passEpa.toFixed(1)} / Rush ${info.epa.rushEpa >= 0 ? '+' : ''}${info.epa.rushEpa.toFixed(1)})
-          </div>` : ''}
-        ${info?.sp?.spOverall != null ? `
-          <div class="mt-1.5 pt-1.5 border-t border-slate-800/80 text-xs text-purple-300">
-            🎓 CFBD SP+: <b>${info.sp.spOverall >= 0 ? '+' : ''}${info.sp.spOverall.toFixed(1)}</b> (Off ${info.sp.spOff?.toFixed(1)} / Def ${info.sp.spDef?.toFixed(1)})
-          </div>` : ''}
       </div>`;
   };
 
@@ -1321,7 +1025,6 @@ function renderCard(g) {
         ${teamBlock(g.h, rk[1], e.h, true)}
       </div>
 
-      <!-- EXPERT CALLOUT & CONFIDENCE SCALE -->
       <div class="${boxClass} p-3.5">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div class="flex flex-wrap items-center gap-1.5">
@@ -1337,7 +1040,6 @@ function renderCard(g) {
 
         <p class="text-sm text-slate-200 leading-relaxed mb-3">${rec.reason}</p>
 
-        <!-- DUAL CONFIDENCE SCALE + QUICK O/U LOGGERS -->
         <div class="grid sm:grid-cols-2 gap-3 pt-2.5 border-t border-slate-700/60 items-center">
           <div class="space-y-1.5">
             ${confBar('Side', rec.sideConf)}
@@ -1356,14 +1058,13 @@ function renderCard(g) {
         </div>
       </div>
 
-      <!-- ACTION BAR: PROPS, TELEMETRY & LINE COMPARISON -->
       <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div class="flex flex-wrap gap-2">
           <button class="btn ${showProps ? 'on' : ''} !py-1.5 !px-3 text-xs" onclick="loadProps('${g.id}')">
             🎯 ${showProps ? 'Hide Props & Injuries' : 'Game-Script Player Props & Injuries'}
           </button>
           <button class="btn ${showTel ? 'on' : ''} !py-1.5 !px-3 text-xs" onclick="st.openTelemetry['${g.id}']=!st.openTelemetry['${g.id}'];render()">
-            📊 ${showTel ? 'Hide Leaders & Telemetry' : 'Team Leaders & Telemetry'}
+            📊 ${showTel ? 'Hide Leaders' : 'Team Leaders'}
           </button>
         </div>
         <button class="text-xs text-slate-400 hover:text-slate-200" onclick="st.openOdds['${g.id}']=!st.openOdds['${g.id}'];render()">
@@ -1374,14 +1075,12 @@ function renderCard(g) {
       ${showTel ? `
         <div class="mt-2.5 p-3 rounded-lg bg-[#0b0f17] border border-slate-800 grid sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <div class="font-bold text-slate-300 mb-1">${g.a} Leaders & Form</div>
+            <div class="font-bold text-slate-300 mb-1">${g.a} Leaders</div>
             <div class="text-slate-400">${(e.a?.leaders || ['No leader data']).join(' · ')}</div>
-            ${e.a?.standings?.l10 ? `<div class="text-slate-400 mt-1">Last 10 Games: <b class="text-slate-200">${e.a.standings.l10}</b></div>` : ''}
           </div>
           <div>
-            <div class="font-bold text-slate-300 mb-1">${g.h} Leaders & Form</div>
+            <div class="font-bold text-slate-300 mb-1">${g.h} Leaders</div>
             <div class="text-slate-400">${(e.h?.leaders || ['No leader data']).join(' · ')}</div>
-            ${e.h?.standings?.l10 ? `<div class="text-slate-400 mt-1">Last 10 Games: <b class="text-slate-200">${e.h.standings.l10}</b></div>` : ''}
           </div>
         </div>
       ` : ''}
@@ -1649,19 +1348,10 @@ function openCfg() {
   m.classList.add('flex');
   m.innerHTML = `
     <div class="card p-5 w-full max-w-md border-slate-700">
-      <h2 class="font-bold text-lg mb-3">SaaS Data Feeds & API Setup</h2>
+      <h2 class="font-bold text-lg mb-3">API & Sports Setup</h2>
 
-      <label class="text-xs text-slate-400">The Odds API Key (Required for Live Lines & Props)</label>
+      <label class="text-xs text-slate-400">The Odds API Key</label>
       <input id="k" type="password" value="${c.key}" placeholder="Paste key from the-odds-api.com">
-
-      <label class="text-xs text-slate-400 mt-3 block">CollegeFootballData API Key (Optional — Free SP+ & EPA)</label>
-      <input id="cfk" type="password" value="${c.cfbdKey || ''}" placeholder="Free key from collegefootballdata.com">
-
-      <div class="mt-3 p-2.5 rounded-lg bg-[#0b0f17] border border-slate-800 text-[11px] text-slate-400 space-y-1">
-        <div>✅ <b>NHL Official API</b> (`api-web.nhle.com`): Auto-active (0 key needed)</div>
-        <div>✅ <b>MLB Stats API</b> (`statsapi.mlb.com`): Auto-active (Probable Pitchers & ERA)</div>
-        <div>✅ <b>nflverse Open Data</b> (`nflfastR`): Auto-active (Team Pass/Rush EPA)</div>
-      </div>
 
       <p class="text-xs text-slate-400 mt-4 mb-1.5">Sports to Analyze</p>
       <div class="flex flex-wrap gap-3 text-sm mb-4">
@@ -1679,7 +1369,7 @@ function openCfg() {
 
       <div class="flex gap-2 justify-end">
         <button class="btn" onclick="closeCfg()">Cancel</button>
-        <button class="btn on" onclick="saveCfg()">Save & Sync Feeds</button>
+        <button class="btn on" onclick="saveCfg()">Save & Load Picks</button>
       </div>
     </div>`;
 }
@@ -1694,7 +1384,6 @@ function saveCfg() {
   Object.keys(SP).forEach(s => on[s] = $('#on_' + s).checked ? 1 : 0);
   st.cfg = {
     key: $('#k').value.trim(),
-    cfbdKey: $('#cfk').value.trim(),
     on,
     unit: +$('#un').value || 25
   };
